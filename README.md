@@ -1,3 +1,11 @@
+> **NovaBrowser desktop project:** This fork is being developed into a native
+> desktop browser using selected Obscura engine crates. The initial experimental
+> window lives in [crates/nova-desktop](crates/nova-desktop), with build and
+> limitations documented in [Desktop MVP](docs/NovaBrowser-desktop-MVP.md).
+> The upstream engine is still branded Obscura; this is not a finished browser.
+
+---
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/h4ckf0r0day/obscura/main/assets/icon.png" alt="Obscura" width="80" />
 </p>
