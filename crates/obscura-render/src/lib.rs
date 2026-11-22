@@ -140,7 +140,7 @@ pub use paint::{
 #[cfg(feature = "paint")]
 pub mod inline;
 #[cfg(feature = "paint")]
-pub use inline::configure_font_directories;
+pub use inline::{configure_font_directories, configure_font_files};
 
 #[cfg(not(feature = "paint"))]
 pub mod inline {

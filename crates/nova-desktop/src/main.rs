@@ -1,3 +1,4 @@
+mod font_fallback;
 mod input;
 mod navigation;
 mod storage;
@@ -308,6 +309,11 @@ fn engine_thread(
     browser_data: Arc<BrowserDataStore>,
     commands: mpsc::Receiver<Command>,
 ) {
+    // Font configuration must happen before the renderer initializes its
+    // process-wide font database. Loading a curated set avoids scanning all
+    // installed Windows fonts (which can be very large).
+    font_fallback::configure_desktop_fonts();
+
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

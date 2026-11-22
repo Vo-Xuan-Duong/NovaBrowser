@@ -241,6 +241,7 @@ struct CachedWebFontSet {
 }
 
 static FONT_DIRECTORIES: OnceLock<Vec<PathBuf>> = OnceLock::new();
+static FONT_FILES: OnceLock<Vec<PathBuf>> = OnceLock::new();
 static BASE_FONT_DATABASE: OnceLock<FontDatabase> = OnceLock::new();
 static EMOJI_FONT_DATABASE: OnceLock<FontDatabase> = OnceLock::new();
 static WEB_FONT_DATABASES: OnceLock<Mutex<VecDeque<Arc<CachedWebFontSet>>>> = OnceLock::new();
@@ -256,6 +257,58 @@ pub fn configure_font_directories(directories: Vec<PathBuf>) -> bool {
         return false;
     }
     FONT_DIRECTORIES.set(directories).is_ok()
+}
+
+/// Configure selected font files before the first paint. Unlike scanning an
+/// entire system font directory, this keeps fallback memory predictable for
+/// desktop browsers. Each font must be a regular TTF/TTC/OTF/OTC file. Missing
+/// and oversized fonts are skipped. Call once during application startup.
+///
+/// This complements `configure_font_directories`: existing consumers that
+/// need full-directory font discovery retain their behavior.
+pub fn configure_font_files(files: Vec<PathBuf>) -> bool {
+    if BASE_FONT_DATABASE.get().is_some() {
+        return false;
+    }
+    FONT_FILES.set(files).is_ok()
+}
+
+const MAX_SELECTED_FONT_FILE_BYTES: u64 = 48 * 1024 * 1024;
+const MAX_SELECTED_FONT_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
+
+fn load_selected_font_files(
+    database: &mut cosmic_text::fontdb::Database,
+    paths: &[PathBuf],
+) -> Vec<cosmic_text::fontdb::ID> {
+    let mut seen = std::collections::HashSet::new();
+    let mut total_bytes = 0u64;
+    let mut ids = Vec::new();
+    for path in paths {
+        if !seen.insert(path) {
+            continue;
+        }
+        let valid_extension = path.extension().and_then(|ext| ext.to_str())
+            .is_some_and(|ext| matches!(
+                ext.to_ascii_lowercase().as_str(), "ttf" | "ttc" | "otf" | "otc"
+            ));
+        if !valid_extension { continue; }
+        let Ok(metadata) = std::fs::symlink_metadata(path) else { continue; };
+        if !metadata.file_type().is_file() || metadata.len() == 0
+            || metadata.len() > MAX_SELECTED_FONT_FILE_BYTES
+            || metadata.len() > MAX_SELECTED_FONT_TOTAL_BYTES.saturating_sub(total_bytes)
+        {
+            continue;
+        }
+        let Ok(data) = std::fs::read(path) else { continue; };
+        if data.len() as u64 != metadata.len() { continue; }
+        // Do not permanently budget files rejected by the font parser.
+        let loaded = database.load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(data)));
+        if !loaded.is_empty() {
+            total_bytes += metadata.len();
+            ids.extend(loaded);
+        }
+    }
+    ids
 }
 
 fn load_font_directories(
@@ -363,6 +416,14 @@ fn base_font_database(load_emoji: bool) -> &'static FontDatabase {
                 declarations.push((id, None, None, None));
             }
         }
+        declarations.extend(
+            load_selected_font_files(
+                &mut database,
+                FONT_FILES.get_or_init(Vec::new),
+            )
+            .into_iter()
+            .map(|id| (id, None, None, None)),
+        );
         declarations.extend(
             load_font_directories(
                 &mut database,
@@ -5840,5 +5901,62 @@ gamma</div>"#,
             colors.len() > 20,
             "the bundled CBDT face must rasterize as color, not a monochrome mask"
         );
+    }
+}
+
+
+#[cfg(test)]
+mod selected_font_file_tests {
+    use super::*;
+
+    #[test]
+    fn only_valid_selected_fonts_are_loaded_once() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let folder = std::env::temp_dir().join(format!(
+            "nova-selected-fonts-{}-{stamp}", std::process::id()
+        ));
+        std::fs::create_dir_all(&folder).unwrap();
+        let valid = folder.join("fallback.ttf");
+        let wrong_extension = folder.join("fallback.txt");
+        let invalid = folder.join("corrupted.ttf");
+        std::fs::write(&valid, SANS_R).unwrap();
+        std::fs::write(&wrong_extension, SANS_R).unwrap();
+        std::fs::write(&invalid, b"not an actual OpenType face").unwrap();
+
+        let mut db = cosmic_text::fontdb::Database::new();
+        let ids = load_selected_font_files(
+            &mut db,
+            &[wrong_extension, invalid, valid.clone(), valid],
+        );
+        assert!(!ids.is_empty(), "the bundled Liberation face should be loadable");
+        assert_eq!(ids.len(), 1, "duplicate paths must not load the same face twice");
+
+        std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn selected_font_budget_rejects_large_and_missing_files() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let folder = std::env::temp_dir().join(format!(
+            "nova-font-limit-{}-{stamp}", std::process::id()
+        ));
+        std::fs::create_dir_all(&folder).unwrap();
+        let large = folder.join("oversized.ttc");
+        let file = std::fs::File::create(&large).unwrap();
+        file.set_len(MAX_SELECTED_FONT_FILE_BYTES + 1).unwrap();
+        let mut db = cosmic_text::fontdb::Database::new();
+        let loaded = load_selected_font_files(
+            &mut db,
+            &[large, folder.join("not-installed.ttf")],
+        );
+        assert!(loaded.is_empty());
+
+        std::fs::remove_dir_all(folder).unwrap();
     }
 }

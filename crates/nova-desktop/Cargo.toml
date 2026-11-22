@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 obscura-browser = { workspace = true, features = ["render"] }
+obscura-render = { workspace = true, features = ["paint"] }
 tokio = { workspace = true }
 serde_json = { workspace = true }
 url = { workspace = true }

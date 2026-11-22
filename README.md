@@ -46,6 +46,9 @@ The original engine requires significant disk space to compile V8.
 - Offline English/Vietnamese interface localization with system-language
   default, instant preview and persisted preference.
 - Integration with the existing Rust DOM, networking and V8 JavaScript runtime.
+- Windows Unicode/CJK font fallback: a bounded set of installed system fonts
+  for Han, Hangul, Japanese, Thai and Indic text. No font downloads or
+  redistributions; falls back to bundled faces when system fonts are absent.
 - Basic page screenshots, mouse clicks, scrolling and text entry.
 - Viewport updates on window resize, with bounded frame dimensions.
 - Provisional in-app navigation history and basic URL/search normalization.

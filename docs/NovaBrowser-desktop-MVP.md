@@ -275,3 +275,40 @@ by index, and **Alt+Home** navigates to the configured homepage.
 8. Resize the window and confirm Home does not show an image from another
    tab. The Obscura website renderer still has unresolved glyph/font
    fallbacks for some non-Latin pages and is not production-ready.
+
+
+## Windows Unicode/CJK font fallback (engine improvement)
+
+The Obscura renderer originally loaded only its embedded Latin-centric
+Liberation/DejaVu faces (and an on-demand emoji font). This can produce
+missing-glyph boxes for Chinese, Japanese, Korean and other scripts.
+
+NovaBrowser now calls obscura_render::configure_font_files before the
+first page/render pass, selecting a short, known list of installed Windows
+fonts (YaHei, JhengHei, SimSun, MingLiU, Meiryo/Yu Gothic, Malgun Gothic,
+Leelawadee UI, Nirmala, Mangal, Segoe UI and Segoe UI Symbol). Missing
+fonts are simply skipped. The engine accepts only regular OpenType/TrueType
+files and limits an individual selected file to 48 MiB and the total
+selected font data to 128 MiB. It does not recursively scan every installed
+system font or download additional fonts.
+
+The renderer's existing bundled fonts still govern ordinary Latin text;
+the additional system faces are available for cosmic-text's missing-glyph
+fallback. This means display may vary by installed Windows fonts, and it is
+not a guarantee of full-script, color-emoji or CSS web-font fidelity. Other
+platforms currently keep the original embedded-font behavior.
+
+Windows validation: run cargo check -p nova-desktop,
+cargo test -p nova-desktop, cargo test -p obscura-render --features paint
+selected_font_file_tests, and cargo run -p nova-desktop --release.
+Visit an HTTP(S) page containing mixed English, simplified/traditional
+Chinese, Japanese, Korean, Vietnamese and Thai text. Confirm the previous
+missing-glyph boxes are reduced, and compare text wrapping and baseline
+alignment. If the font names differ on the local machine, inspect
+%WINDIR%\Fonts. It is safe for a requested optional font to be absent.
+A separate renderer unit test covers invalid/oversized files, extension
+filtering and duplicate paths; the desktop unit tests check font selection.
+
+The site-content renderer still relies on CPU PNG screenshots and synthetic
+DOM input. This fallback work does not resolve native IME, GPU
+compositing, security isolation, or every possible Unicode font issue.
