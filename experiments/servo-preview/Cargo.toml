@@ -1,0 +1,28 @@
+[package]
+name = "nova-servo-preview"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94"
+publish = false
+description = "Experimental Servo-backed native browsing proof of concept for NovaBrowser"
+license = "Apache-2.0"
+
+# Separate Cargo workspace: Servo has a much larger dependency graph and a
+# newer Rust toolchain than the production Obscura desktop. This preview must
+# not change the main workspace's lockfile or ordinary builds.
+[workspace]
+resolver = "2"
+
+[dependencies]
+# Follow the dependency versions proven by the runtime's upstream lockfile.
+# Newer Servo/Tauri minor versions change embedding traits and are not
+# interchangeable until the integration is updated and tested.
+tauri = { version = "=2.11.5", default-features = false, features = ["common-controls-v6"] }
+tauri-runtime-servo = "=0.1.0"
+tauri-runtime = "=2.11.3"
+tauri-utils = "=2.9.3"
+servo = "=0.5.0"
+url = "2"
+
+[build-dependencies]
+tauri-build = "=2.6.3"

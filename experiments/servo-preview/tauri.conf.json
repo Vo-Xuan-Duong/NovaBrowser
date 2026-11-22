@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "NovaBrowser Servo Preview",
+  "version": "0.1.0",
+  "identifier": "com.novabrowser.servo.preview",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "NovaBrowser — Servo Preview",
+        "url": "index.html",
+        "width": 1140,
+        "height": 760,
+        "minWidth": 740,
+        "minHeight": 500,
+        "center": true,
+        "resizable": true,
+        "decorations": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": false,
+    "icon": [
+      "icons/icon.ico"
+    ]
+  }
+}

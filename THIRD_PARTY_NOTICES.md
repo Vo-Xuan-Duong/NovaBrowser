@@ -32,3 +32,12 @@ https://github.com/lucide-icons/lucide
 
 These icons are self-hosted. NovaBrowser's chrome does not request SVG assets
 from external servers when it starts.
+
+## Optional Servo experimental runtime
+
+The opt-in `experiments/servo-preview` prototype depends on the Servo web
+engine (https://servo.org/, MPL-2.0) and the third-party
+`tauri-runtime-servo` integration (https://github.com/copse-dev/tauri-runtime-servo,
+Apache-2.0 OR MIT). These sources are fetched through Cargo when the preview
+is built and are **not copied** into the NovaBrowser repository. Review their
+complete transitive licensing requirements before distributing binaries.

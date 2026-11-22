@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "servo-preview-local",
+  "description": "Only the bundled local preview page can call Rust commands. Remote websites receive no Tauri capability.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}

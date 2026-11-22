@@ -26,6 +26,24 @@ Cargo will resolve additional Tauri dependencies for the desktop crate and
 update **Cargo.lock**. Review and commit that update after building locally.
 The original engine requires significant disk space to compile V8.
 
+## Experimental Servo engine preview
+
+A **separate, opt-in Servo-backed browser executable** is available at
+[`experiments/servo-preview/`](experiments/servo-preview/README.md). It renders
+real external sites using Servo (without Obscura and without WebView2),
+reuses NovaBrowser's existing URL/search normalization, and provides native
+Back/Forward/Reload/Home commands. The current NovaBrowser desktop is not
+replaced yet because Servo's experimental Tauri runtime cannot host several
+webviews in one native window.
+
+```cmd
+cargo run --manifest-path experiments/servo-preview/Cargo.toml --release
+```
+
+For Windows toolchain requirements, memory measurements and limitations, see
+[`Servo evaluation`](docs/Servo-engine-evaluation.md). The preview has a
+separate Cargo workspace and does not change the main `Cargo.lock`.
+
 ## What is currently implemented
 
 - Native Tauri desktop shell with a Chrome-inspired title bar, address bar and

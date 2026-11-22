@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <title>NovaBrowser | Servo Preview</title>
+  <link rel="stylesheet" href="style.css"/>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <main class="layout">
+    <header class="topbar">
+      <span class="brand"><span class="logo">N</span> NovaBrowser</span>
+      <span class="edition">SERVO ENGINE PREVIEW</span>
+    </header>
+    <section class="intro">
+      <div class="eyebrow">Trình duyệt thử nghiệm · Rust + Servo</div>
+      <h1>Khám phá web với Servo.</h1>
+      <p>Đây là bản thử engine độc lập, không dùng Obscura để hiển thị website và không cần WebView2 cho giao diện. Mục tiêu: kiểm tra tương thích và đo RAM thực tế.</p>
+      <form id="search-form" class="search-form" autocomplete="off">
+        <label class="sr-only" for="address">Nhập URL hoặc từ khóa</label>
+        <span class="search-mark" aria-hidden="true">⌕</span>
+        <input id="address" type="text" placeholder="Tìm kiếm Google hoặc nhập URL" maxlength="4096" spellcheck="false" autofocus/>
+        <label class="sr-only" for="provider">Công cụ tìm kiếm</label>
+        <select id="provider" aria-label="Công cụ tìm kiếm">
+          <option value="google">Google</option>
+          <option value="bing">Bing</option>
+          <option value="duckduckgo">DuckDuckGo</option>
+        </select>
+        <button type="submit" id="go-button">Truy cập</button>
+      </form>
+      <p id="status" role="status" aria-live="polite">Nhập từ khóa để tìm kiếm hoặc nhập một địa chỉ web.</p>
+    </section>
+    <section class="shortcuts" aria-label="Các trang kiểm thử">
+      <div class="section-head"><h2>Website kiểm thử</h2><span>Không tải trước</span></div>
+      <div class="links">
+        <button type="button" data-target="https://www.google.com/">Google <span>Thử khả năng tương thích</span></button>
+        <button type="button" data-target="https://github.com/">GitHub <span>Giao diện và JavaScript</span></button>
+        <button type="button" data-target="https://www.wikipedia.org/">Wikipedia <span>Unicode và mạng</span></button>
+        <button type="button" data-target="https://developer.mozilla.org/">MDN <span>HTML, CSS, DOM</span></button>
+      </div>
+    </section>
+    <section class="instructions">
+      <h2>Điều hướng khi đã vào website</h2>
+      <p>Menu <strong>Navigate</strong> của Windows luôn hiển thị ngay cả khi mở website ngoài. Nhấn <kbd>Ctrl</kbd> + <kbd>L</kbd> để trở về trang nhập địa chỉ, <kbd>Alt</kbd> + <kbd>←</kbd> hoặc <kbd>→</kbd> để quay lại/tiến tới, và <kbd>Ctrl</kbd> + <kbd>R</kbd> để tải lại.</p>
+      <p>Đây chưa phải bản thay thế NovaBrowser hiện tại: runtime thử nghiệm chưa hỗ trợ nhiều Servo webview trong cùng một cửa sổ. Không đăng nhập tài khoản nhạy cảm trong bản thử nghiệm.</p>
+    </section>
+    <footer>NovaBrowser · Servo proof of concept · No automatic search-engine fallback</footer>
+  </main>
+</body>
+</html>
