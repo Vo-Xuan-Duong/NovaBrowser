@@ -1,0 +1,18 @@
+[package]
+name = "nova-desktop"
+description = "Experimental native browser shell powered by the Obscura engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+obscura-browser = { workspace = true, features = ["render"] }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+url = { workspace = true }
+slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-femtovg", "image-decoders"] }
+
+[build-dependencies]
+slint-build = { version = "=1.18.1", default-features = false, features = ["compat-1-18"] }
