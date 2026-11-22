@@ -443,3 +443,19 @@ impl ApplicationHandler<Event> for Embedder {
         state.engine.spin_event_loop();
     }
 }
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::*;
+    #[test]
+    fn decodes_browser_commands_without_running_a_window() {
+        let command = serde_json::from_str::<Control>(
+            r#"{"op":"navigate","tab":"nova-tab-3","url":"https://example.org/"}"#
+        ).unwrap();
+        assert!(matches!(command, Control::Navigate { tab, url }
+            if tab == "nova-tab-3" && url == "https://example.org/"));
+        let stop = serde_json::from_str::<Control>(r#"{"op":"shutdown"}"#).unwrap();
+        assert!(matches!(stop, Control::Shutdown));
+        assert!(serde_json::from_str::<Control>(r#"{"op":"run_code"}"#).is_err());
+    }
+}
