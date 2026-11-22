@@ -11,7 +11,9 @@ Settings, bookmarks, history, and English/Vietnamese localization.
 - The actual product is launched by `run-nova.cmd` or `cargo nova`.
 - It still renders website content using Obscura's experimental CPU PNG
   frames and a synthetic DOM input adapter.
-- A Servo adapter is **not yet wired into the actual browser window**.
+- A Windows-only native Servo child-window adapter is now available behind
+  `servo-embed` in the existing NovaBrowser desktop. It is not yet compiled
+  or tested on Windows and is not the default renderer.
 - `crates/nova-desktop/src/engine_api.rs` now defines browser-owned tab
   identifiers, bounds, input events, page notifications and the renderer
   interface to support incremental replacement.
@@ -134,3 +136,12 @@ No GitHub Actions or remote build workflows are required or added.
 - https://github.com/servo/servo/blob/main/components/servo/examples/winit_minimal.rs
 - https://github.com/copse-dev/tauri-runtime-servo
 - https://docs.rs/crate/servo/0.8.0
+
+## Native integration work (2026-11-22)
+
+The existing NovaBrowser shell now contains an opt-in direct Servo WebView
+adapter at `crates/nova-desktop/src/servo_embed.rs`, with tab/command routing
+and native-window layout from the original UI. This is a feature-gated
+integration, not the replacement Servo harness. See
+[Windows manual validation](SERVO_NATIVE_EMBED.md). No Windows build or
+RAM benchmark has been completed for this new code.

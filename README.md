@@ -1,86 +1,84 @@
 # NovaBrowser
 
-**NovaBrowser is a personal desktop browser developed as one product.**
-Its own toolbar, tabs, Home, Settings, language preferences, bookmarks,
-history and stored sessions are the application. Existing browser engines
-are implementation sources, **not products that replace this shell**.
+**NovaBrowser is your personal Rust desktop browser.** Its existing browser
+chrome, tabs, omnibox, Home, Settings, bookmarks, history, sessions, and
+English/Vietnamese UI remain the product. Third-party engines are components,
+not replacement browser applications.
 
-> **Current status: engineering preview, not a secure production browser.**
-> The existing NovaBrowser window is functional as a shell but still uses
-> experimental Obscura screenshot-based site rendering. Servo has been
-> evaluated as a source for native web rendering, but its WebView compositor
-> is **not yet embedded into the existing shell**. Do not assume the
-> Servo test harness is the NovaBrowser application.
+> Engineering preview only. The default website renderer is still Obscura's
+> CPU screenshot path. An **optional native Servo integration** now exists
+> inside the same NovaBrowser window, but is **not yet Windows build-verified**.
 
-## Run the actual NovaBrowser on Windows
+## Default NovaBrowser (existing browser UI)
 
-Install Rust, the Visual Studio C++ toolchain, Windows SDK and dependencies
-needed for the current V8/Obscura build. From the repository root:
+On Windows, install Rust, Visual Studio C++ Build Tools, Windows SDK, and the
+native requirements of the current V8-based engine. From repository root:
 
 ```cmd
 git pull origin main
 run-nova.cmd
 ```
 
-The two equivalent ways to launch **the same NovaBrowser shell** are:
+Equivalent commands:
 
 ```cmd
 cargo nova
 cargo run -p nova-desktop --release
 ```
 
-Local checks (no GitHub Actions):
+This launches the full NovaBrowser interface from
+`crates/nova-desktop/ui/`, including its existing features and user profile.
+
+## Optional: Servo rendering inside NovaBrowser
+
+An experimental Windows native child-window compositor was added to the
+**same NovaBrowser executable**. It uses Servo's WebView API, not a Servo
+sample application. The HTML/CSS frontend still owns the persistent toolbar,
+Home, Settings and local library. Servo renders external websites beneath
+the chrome, with per-tab WebView handles and native input events.
+
+To build locally (Windows x64, Rust stable, Servo native prerequisites):
 
 ```cmd
-cargo check -p nova-desktop
-cargo test -p nova-desktop
-cargo run -p nova-desktop --release
+cargo check -p nova-desktop --features servo-embed
+cargo test -p nova-desktop --features servo-embed
+cargo run -p nova-desktop --release --features servo-embed
 ```
 
-The current main application is `crates/nova-desktop/` and its
-`ui/` directory. It already contains the browser chrome, tab management,
-bilingual English/Vietnamese UI, Settings, search providers, bookmarks,
-history and saved sessions. **Keep these components, not a minimal Servo
-sample UI, as the product.**
+**Unverified:** these commands have not been run successfully on Windows in
+this development session. The opt-in implementation may require changes to
+native integration APIs and GPU child-window compositing. Keyboard/IME,
+download/permission flows, browser process isolation, and resource behavior
+are incomplete. The optional mode still constructs legacy Obscura tab
+objects and has **no demonstrated RAM saving**. Do not use it for sensitive
+browsing.
 
-## Engine integration strategy
+Relevant source:
+- `crates/nova-desktop/src/servo_embed.rs`: native Servo 0.8 WebView,
+  event loop, per-tab handles, input and direct paint
+- `crates/nova-desktop/src/main.rs`: navigation and tab events, native
+  surface commands, storage integration
+- `crates/nova-desktop/src/engine_api.rs`: browser-owned engine contract
+- `crates/nova-desktop/ui/app.js`: chrome clipping and surface visibility
 
-**Reuse instead of rewrite:**
+See [Windows validation](docs/SERVO_NATIVE_EMBED.md) and
+[architecture decision](docs/ENGINE_DECISION.md).
 
-- Servo's native embedding APIs (`ServoBuilder`, `WebViewBuilder`,
-  `RenderingContext`, `WebView::notify_input_event`) are the candidate
-  for website HTML/CSS, JavaScript and compositing inside NovaBrowser.
-- Keep useful application-level components from the existing Obscura code,
-  especially URL/search normalization, session persistence and the
-  already-developed browser UI. Do not nest a second full headless browser
-  under the Servo compositor.
-- `crates/nova-desktop/src/engine_api.rs` establishes an engine-agnostic
-  tab/input/navigation contract. The shell is still running the original
-  renderer while the adapter is implemented and tested.
-- The independent Servo program at
-  [`tools/servo-embed-harness/`](tools/servo-embed-harness/) is an
-  **integration test harness only**. It is not an alternate NovaBrowser
-  release or the default launch command.
+## Reuse without creating another browser
 
-Key unresolved engineering work: native multi-webview composition with
-persistent trusted browser chrome, input/IME, per-tab lifecycle and idle
-memory management, actual Windows testing, and robust site security.
-The experimental `tauri-runtime-servo` adapter cannot currently embed
-multiple Servo webviews within one native window. A direct Servo embedder or
-suitable maintained adapter must solve that boundary before cutover.
+The `crates/obscura-*/` source remains for selected engine utilities and
+the current default page pipeline while native integration is verified.
+The standalone `tools/servo-embed-harness/` is a test harness only, **not**
+a NovaBrowser release. The goal is a single browser with a single active page
+renderer, preserving existing UI, bookmarks, settings and profile data.
 
-See [the architectural decision](docs/ENGINE_DECISION.md) and
-[Servo integration notes](docs/Servo-engine-evaluation.md).
+No GitHub Actions; build and test on your own Windows machine.
 
-## Resource goals
+## RAM and licensing
 
-Low RAM usage is a project goal, **not a measured Servo advantage**.
-Benchmark private committed bytes and working set of all process descendants
-under identical workloads. The test harness includes
-[`measure-memory.ps1`](tools/servo-embed-harness/measure-memory.ps1).
-
-## Attribution
-
-The repository contains significant Obscura-derived source code.
-Keep original notices and review Servo's MPL-2.0 requirements when
-distributing an embedded engine. See [third-party notices](THIRD_PARTY_NOTICES.md).
+A low process-tree memory footprint is a goal, not an established Servo
+advantage. Compare the full application process tree on matching Windows
+hardware, pages and workloads using the RAM sampler at
+`tools/servo-embed-harness/measure-memory.ps1`.
+Keep the original Obscura notices and review Servo MPL-2.0 requirements
+before distributing binaries. See [third-party notices](THIRD_PARTY_NOTICES.md).
