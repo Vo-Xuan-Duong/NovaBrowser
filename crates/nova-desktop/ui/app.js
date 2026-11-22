@@ -2,6 +2,9 @@
   "use strict";
 
   const { invoke } = window.__TAURI__.core;
+  const icons = window.NovaIcons;
+  if (!icons) throw new Error("Lucide icon registry failed to load");
+  icons.hydrate();
   const { listen } = window.__TAURI__.event;
   const appWindow = window.__TAURI__.window.getCurrentWindow();
   const pageArea = document.getElementById("page-area");
@@ -15,6 +18,7 @@
   const libraryPanel = document.getElementById("library-panel");
   const libraryList = document.getElementById("library-list");
   const libraryTitle = document.getElementById("library-title");
+  const libraryTitleIcon = document.getElementById("library-title-icon");
   const historyFooter = document.getElementById("history-footer");
   const settingsPanel = document.getElementById("settings-panel");
   const settingsForm = document.getElementById("settings-form");
@@ -50,7 +54,7 @@
       const mark = document.createElement("span");
       mark.className = "brand-mark";
       mark.setAttribute("aria-hidden", "true");
-      mark.textContent = "N";
+      mark.append(icons.create("globe"));
       const title = document.createElement("span");
       title.className = "tab-title";
       title.textContent = tab.title || "New tab";
@@ -58,7 +62,7 @@
       const close = document.createElement("button");
       close.className = "tab-close";
       close.type = "button";
-      close.textContent = "×";
+      close.append(icons.create("x"));
       close.title = "Close tab";
       close.setAttribute("aria-label", `Close ${tab.title || "tab"}`);
       close.hidden = !tab.closable;
@@ -103,16 +107,24 @@
   document.getElementById("forward").addEventListener("click", () => void call("browser_forward"));
   document.getElementById("reload").addEventListener("click", () => void call("browser_reload"));
 
+  function setBookmarkIcon(bookmarked) {
+    bookmarkButton.classList.toggle("is-bookmarked", bookmarked);
+    bookmarkButton.replaceChildren(icons.create(bookmarked ? "bookmark-check" : "bookmark"));
+    const label = bookmarked ? "Remove bookmark" : "Bookmark this page";
+    bookmarkButton.setAttribute("aria-label", label);
+    bookmarkButton.title = label;
+  }
+
   async function refreshBookmarkState() {
     const url = address.value.trim();
     if (!/^https?:\/\//i.test(url)) {
-      bookmarkButton.classList.remove("is-bookmarked");
+      setBookmarkIcon(false);
       return;
     }
     const bookmarked = await call("browser_is_bookmarked", { url });
-    bookmarkButton.classList.toggle("is-bookmarked", bookmarked === true);
-    bookmarkButton.setAttribute("aria-label", bookmarked ? "Remove bookmark" : "Bookmark this page");
-    bookmarkButton.title = bookmarked ? "Remove bookmark" : "Bookmark this page";
+    // Discard stale requests when a tab was switched during the lookup.
+    if (address.value.trim() !== url) return;
+    setBookmarkIcon(bookmarked === true);
   }
 
   bookmarkButton.addEventListener("click", async () => {
@@ -123,9 +135,7 @@
       url,
     });
     if (typeof bookmarked === "boolean") {
-      bookmarkButton.classList.toggle("is-bookmarked", bookmarked);
-      bookmarkButton.setAttribute("aria-label", bookmarked ? "Remove bookmark" : "Bookmark this page");
-      bookmarkButton.title = bookmarked ? "Remove bookmark" : "Bookmark this page";
+      setBookmarkIcon(bookmarked);
       if (libraryMode === "bookmarks" && !libraryPanel.hidden) void renderLibrary("bookmarks");
     }
   });
@@ -138,6 +148,7 @@
     libraryMode = mode;
     const isHistory = mode === "history";
     libraryTitle.textContent = isHistory ? "Browsing history" : "Bookmarks";
+    libraryTitleIcon.replaceChildren(icons.create(isHistory ? "clock" : "folder-open"));
     historyFooter.hidden = !isHistory;
     document.getElementById("history-tab").classList.toggle("is-active", isHistory);
     document.getElementById("bookmarks-tab").classList.toggle("is-active", !isHistory);
@@ -180,7 +191,7 @@
         const remove = document.createElement("button");
         remove.className = "entry-remove";
         remove.type = "button";
-        remove.textContent = "×";
+        remove.append(icons.create("trash"));
         remove.setAttribute("aria-label", `Remove ${entry.title || entry.url}`);
         remove.addEventListener("click", async () => {
           await call("browser_remove_bookmark", { url: entry.url });

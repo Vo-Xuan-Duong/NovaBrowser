@@ -111,3 +111,22 @@ unreasonably long URLs and tabs beyond the eight-tab limit are ignored.
 Closing the last tab is intentionally disabled; restoring tab metadata is not
 full crash/session recovery. This preview does not encrypt the profile file,
 restore form/scroll/JS state, or guarantee recovery from an unclean shutdown.
+
+
+## Icon system
+
+NovaBrowser uses a curated selection of official Lucide SVG shapes (ISC/MIT)
+in `ui/icons.js`, self-hosted without a CDN, npm install or runtime download.
+All static icon slots are marked `data-icon="name"` in `ui/index.html`.
+The UI bootstraps them with `window.NovaIcons.hydrate()`; dynamically created
+tabs/bookmarks use `window.NovaIcons.create("name")`.
+
+The registry exposes `NovaIcons.names` to inspect available glyphs and uses
+CSS `currentColor` for consistent Light/Dark appearance. New glyphs can be
+added from the full Lucide catalog at https://lucide.dev/icons/ using the
+official SVG data, while keeping the project bundle small. Avoid substituting
+a lock or shield icon for browser security indicators: these require actual
+certificate/security-state integration before they can convey trust.
+
+Source provenance and notices are in `THIRD_PARTY_NOTICES.md` and
+`crates/nova-desktop/ui/LUCIDE_LICENSE`.

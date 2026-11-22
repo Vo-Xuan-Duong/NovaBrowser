@@ -30,6 +30,8 @@ The original engine requires significant disk space to compile V8.
 
 - Native Tauri desktop shell with a Chrome-inspired title bar, address bar and
   Back / Forward / Reload.
+- Consistent Lucide SVG icons for the browser chrome, hosted locally without
+  icon fonts or runtime CDN dependencies.
 - Multiple isolated page tabs with shared browser cookies, capped at eight tabs.
 - Persistent tab session restore: reopen previous tabs and selected tab, loading
   inactive tabs only when selected.
