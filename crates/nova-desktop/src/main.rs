@@ -624,6 +624,9 @@ fn browser_save_settings(
     if theme != "light" && theme != "dark" {
         return Err("Choose either the light or dark appearance".to_string());
     }
+    if homepage.len() > 4096 {
+        return Err("The homepage must be 4,096 characters or fewer".to_string());
+    }
     let homepage = normalize_address(&homepage).map_err(|error| error.to_string())?;
     let settings = BrowserSettings { theme, homepage };
     state.browser_data.save_settings(settings.clone())?;

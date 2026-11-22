@@ -34,7 +34,8 @@ The original engine requires significant disk space to compile V8.
 - Persistent tab session restore: reopen previous tabs and selected tab, loading
   inactive tabs only when selected.
 - Local bookmarks and browsing history with quick access from the toolbar.
-- Settings for light/dark appearance and a saved homepage for startup and new tabs.
+- Settings for light/dark appearance and a saved homepage for new tabs,
+  with live theme preview, cancel/revert, homepage validation and persistence.
 - Integration with the existing Rust DOM, networking and V8 JavaScript runtime.
 - Basic page screenshots, mouse clicks, scrolling and text entry.
 - Viewport updates on window resize, with bounded frame dimensions.

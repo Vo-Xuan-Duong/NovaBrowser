@@ -6,6 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+use crate::navigation::normalize_address;
+
 const MAX_HISTORY_ENTRIES: usize = 500;
 pub const MAX_TABS: usize = 8;
 const MAX_SESSION_URL_LENGTH: usize = 4096;
@@ -25,8 +27,8 @@ pub struct Visit {
     pub visited_at: u64,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
 pub struct BrowserSettings {
     pub theme: String,
     pub homepage: String,
@@ -38,6 +40,24 @@ impl Default for BrowserSettings {
             theme: "light".to_string(),
             homepage: "https://example.com/".to_string(),
         }
+    }
+}
+
+impl BrowserSettings {
+    /// Profiles from older versions can be missing fields or contain
+    /// unsupported values. Keep the rest of the profile instead of discarding
+    /// bookmarks and tabs when settings need a fallback.
+    pub fn sanitized(mut self) -> Self {
+        if self.theme != "light" && self.theme != "dark" {
+            self.theme = "light".to_string();
+        }
+        self.homepage = if self.homepage.len() <= MAX_SESSION_URL_LENGTH {
+            normalize_address(&self.homepage)
+                .unwrap_or_else(|_| BrowserSettings::default().homepage)
+        } else {
+            BrowserSettings::default().homepage
+        };
+        self
     }
 }
 
@@ -99,10 +119,11 @@ pub struct BrowserDataStore {
 
 impl BrowserDataStore {
     pub fn load(path: PathBuf) -> Self {
-        let data = fs::read(&path)
+        let mut data: BrowserData = fs::read(&path)
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
+        data.settings = data.settings.sanitized();
         Self {
             path,
             data: Mutex::new(data),
@@ -170,8 +191,12 @@ impl BrowserDataStore {
 
     pub fn save_settings(&self, settings: BrowserSettings) -> Result<(), String> {
         let mut data = self.lock();
-        data.settings = settings;
-        self.save(&data)
+        let previous = std::mem::replace(&mut data.settings, settings.sanitized());
+        if let Err(error) = self.save(&data) {
+            data.settings = previous;
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub fn clear_history(&self) -> Result<(), String> {
@@ -203,6 +228,33 @@ impl BrowserDataStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_are_compatible_with_old_and_invalid_profiles() {
+        let missing: BrowserSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(missing.sanitized().homepage, BrowserSettings::default().homepage);
+        let invalid: BrowserSettings = serde_json::from_str(
+            r#"{"theme":"midnight","homepage":"javascript:alert(1)"}"#
+        ).unwrap();
+        assert_eq!(invalid.sanitized(), BrowserSettings::default());
+        let search: BrowserSettings = serde_json::from_str(
+            r#"{"theme":"dark","homepage":"hello browser"}"#
+        ).unwrap();
+        assert!(search.sanitized().homepage.starts_with("https://www.google.com/search?q="));
+    }
+
+    #[test]
+    fn a_failed_settings_save_keeps_previous_in_memory_value() {
+        // A directory cannot be used as a regular file on Windows/Linux.
+        let store = BrowserDataStore::load(std::env::temp_dir());
+        let previous = store.settings();
+        let error = store.save_settings(BrowserSettings {
+            theme: "dark".into(),
+            homepage: "https://www.rust-lang.org/".into(),
+        });
+        assert!(error.is_err());
+        assert_eq!(store.settings(), previous);
+    }
 
     #[test]
     fn restores_tabs_from_existing_profile_without_losing_bookmarks() {

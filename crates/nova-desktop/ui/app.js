@@ -21,11 +21,15 @@
   const settingsError = document.getElementById("settings-error");
   const themeSetting = document.getElementById("theme-setting");
   const homepageSetting = document.getElementById("homepage-setting");
+  const settingsTrigger = document.getElementById("show-settings");
+  const settingsSaveButton = settingsForm.querySelector(".settings-save");
 
   let lastSize = "";
   let libraryMode = "bookmarks";
   let activeTabId = null;
   let currentTitle = "New tab";
+  let persistedTheme = "light";
+  let settingsSaving = false;
 
   function applyTheme(theme) {
     document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light";
@@ -207,40 +211,93 @@
     void renderLibrary("history");
   });
 
+  function showSettingsError(message, { invalidHomepage = false } = {}) {
+    settingsError.textContent = message;
+    settingsError.hidden = false;
+    if (invalidHomepage) {
+      homepageSetting.setAttribute("aria-invalid", "true");
+      homepageSetting.focus();
+    }
+  }
+
   async function openSettings() {
+    if (settingsSaving) return;
     const settings = await call("browser_get_settings");
     if (!settings) return;
     closeLibrary();
-    themeSetting.value = settings.theme;
+    persistedTheme = settings.theme === "dark" ? "dark" : "light";
+    themeSetting.value = persistedTheme;
     homepageSetting.value = settings.homepage;
+    homepageSetting.removeAttribute("aria-invalid");
+    settingsError.textContent = "";
     settingsError.hidden = true;
     settingsPanel.hidden = false;
-    homepageSetting.focus();
-    homepageSetting.select();
+    themeSetting.focus();
   }
 
-  function closeSettings() {
+  function closeSettings({ restoreFocus = false, keepTheme = false } = {}) {
+    if (settingsSaving || settingsPanel.hidden) return;
+    if (!keepTheme) applyTheme(persistedTheme);
     settingsPanel.hidden = true;
+    settingsError.textContent = "";
+    settingsError.hidden = true;
+    homepageSetting.removeAttribute("aria-invalid");
+    if (restoreFocus) settingsTrigger.focus();
   }
 
-  document.getElementById("show-settings").addEventListener("click", () => void openSettings());
-  document.getElementById("close-settings").addEventListener("click", closeSettings);
-  document.getElementById("cancel-settings").addEventListener("click", closeSettings);
+  // The theme is previewed immediately, then reverted on Cancel/Escape.
+  // It is persisted only after Save completes successfully.
+  themeSetting.addEventListener("change", () => applyTheme(themeSetting.value));
+  homepageSetting.addEventListener("input", () => {
+    settingsError.hidden = true;
+    homepageSetting.removeAttribute("aria-invalid");
+  });
+  settingsTrigger.addEventListener("click", () => {
+    if (!settingsPanel.hidden) closeSettings({ restoreFocus: true });
+    else void openSettings();
+  });
+  document.getElementById("close-settings").addEventListener("click", () =>
+    closeSettings({ restoreFocus: true })
+  );
+  document.getElementById("cancel-settings").addEventListener("click", () =>
+    closeSettings({ restoreFocus: true })
+  );
   settingsForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (settingsSaving) return;
+    const homepage = homepageSetting.value.trim();
+    if (!homepage) {
+      showSettingsError("Enter a homepage URL or a search query.", { invalidHomepage: true });
+      return;
+    }
+    if (new TextEncoder().encode(homepage).length > 4096) {
+      showSettingsError("The homepage must be 4,096 bytes or fewer.", { invalidHomepage: true });
+      return;
+    }
+
+    settingsSaving = true;
+    settingsSaveButton.disabled = true;
     settingsError.hidden = true;
+    let saved = null;
     try {
-      const saved = await invoke("browser_save_settings", {
+      saved = await invoke("browser_save_settings", {
         theme: themeSetting.value,
-        homepage: homepageSetting.value,
+        homepage,
       });
-      applyTheme(saved.theme);
-      // Changing a homepage preference should not navigate away from the
-      // current tab or replace the current session.
-      closeSettings();
     } catch (error) {
-      settingsError.textContent = String(error);
-      settingsError.hidden = false;
+      const message = String(error);
+      const invalidHomepage = /^(Enter a|Invalid web address|Only http|The homepage)/i.test(message);
+      showSettingsError(message, { invalidHomepage });
+    } finally {
+      settingsSaving = false;
+      settingsSaveButton.disabled = false;
+    }
+
+    if (saved) {
+      persistedTheme = saved.theme;
+      applyTheme(saved.theme);
+      // A homepage change only affects future new tabs, not the active tab.
+      closeSettings({ keepTheme: true, restoreFocus: true });
     }
   });
 
@@ -254,7 +311,7 @@
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeLibrary();
-      closeSettings();
+      closeSettings({ restoreFocus: true });
     }
   });
 
@@ -380,7 +437,10 @@
     ]);
     await publishSize();
     const settings = await call("browser_get_settings");
-    if (settings) applyTheme(settings.theme);
+    if (settings) {
+      persistedTheme = settings.theme === "dark" ? "dark" : "light";
+      applyTheme(persistedTheme);
+    }
     // Register listeners *before* the engine publishes restored tabs.
     // Startup is one-shot; the engine decides between restoring a session
     // and opening the configured homepage on the first launch.

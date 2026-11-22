@@ -90,7 +90,7 @@
         </div>
       </aside>
 
-      <aside class="settings-panel" id="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+      <aside class="settings-panel" id="settings-panel" role="dialog" aria-modal="false" aria-labelledby="settings-title" hidden>
         <div class="library-heading">
           <div>
             <span class="library-eyebrow">PREFERENCES</span>
@@ -108,10 +108,10 @@
           </label>
           <p class="settings-help">Choose the color theme for NovaBrowser.</p>
           <label class="settings-field" for="homepage-setting">
-            <span>Homepage and new tabs</span>
-            <input id="homepage-setting" type="text" autocomplete="url" spellcheck="false" placeholder="https://example.com/" />
+            <span>Homepage for new tabs</span>
+            <input id="homepage-setting" type="text" autocomplete="url" spellcheck="false" maxlength="4096" aria-describedby="homepage-help settings-error" placeholder="https://example.com/" />
           </label>
-          <p class="settings-help">Enter a website or a search query.</p>
+          <p class="settings-help" id="homepage-help">Enter a website or search query. NovaBrowser restores your previous tabs when reopening; this homepage is used for new tabs and a fresh session.</p>
           <div class="settings-error" id="settings-error" role="alert" hidden></div>
           <div class="settings-actions">
             <button class="settings-cancel" id="cancel-settings" type="button">Cancel</button>

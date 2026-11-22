@@ -59,6 +59,29 @@ production security boundary or a replacement for Chromium/Firefox.
 - Site compatibility is limited by the current browser engine.
 - Tauri's webview is used for browser chrome only; it does not render websites.
 
+## Settings audit
+
+The settings panel configures only the browser's native chrome and new-tab
+homepage. Light/dark is **not** a forced color scheme for websites rendered
+by the Obscura engine. Changing the homepage does not navigate the current
+tab or overwrite restored tabs.
+
+Settings now show a live appearance preview and revert it when the dialog is
+cancelled, closed or dismissed. A theme is persisted only after Save succeeds.
+Homepage validation rejects blank and overlong input before invoking Rust;
+the Rust command also enforces the 4,096-byte bound and normalizes
+HTTP(S) URLs/search queries. Invalid saved theme/homepage values fall back to
+defaults while retaining other stored profile data.
+
+The save button is disabled during writes. If a settings write fails, the
+in-memory settings value is restored and the panel displays an error; no
+successful save is reported. The profile file itself is still written using
+ordinary filesystem writes and is not yet crash-safe/atomic.
+
+The popup is non-modal: click outside or Escape to dismiss without saving.
+Use Tab to move through form controls; its open/close buttons restore focus
+for keyboard users.
+
 ## Local validation
 
 ```powershell
