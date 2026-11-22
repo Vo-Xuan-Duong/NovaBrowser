@@ -1,4 +1,9 @@
-# NovaBrowser desktop MVP
+# NovaBrowser desktop MVP (legacy Obscura reference)
+
+> Superseded as the active browser architecture by
+> [ADR-001: Servo engine](ENGINE_DECISION.md). Retained for UI,
+> settings, i18n, bookmarks, history and profile migration.
+
 
 ## Intent
 

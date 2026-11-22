@@ -1,5 +1,12 @@
 # AGENTS.md
 
+> NovaBrowser selects **Servo only** for website rendering. Official app:
+> `apps/nova-browser/` (run with `run-nova.cmd` or `cargo nova`).
+> Historical `crates/nova-desktop/` and `crates/obscura-*/` are retained
+> for migration/reference, not parallel development. See
+> `docs/ENGINE_DECISION.md`. Do not run GitHub Actions.
+
+
 Guidance for AI coding agents and contributors working in the Obscura repo.
 This is the non-obvious stuff you can't infer from the code; read it before
 building, testing, or changing anything.
