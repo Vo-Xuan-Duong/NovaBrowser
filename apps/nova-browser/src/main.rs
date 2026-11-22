@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-/// A real Servo webview POC, isolated from the current Obscura desktop.
+/// Selected browser engine: Servo (engineering build).
 /// The native menu remains accessible when the single Servo webview navigates
 /// away from our trusted local Home page. No untrusted page may invoke Rust.
 #[path = "../../../crates/nova-desktop/src/navigation.rs"]
@@ -11,7 +11,7 @@ use tauri::{Manager, State, Url};
 
 type ServoRuntime = tauri_runtime_servo::Servo<tauri::EventLoopMessage>;
 
-struct PreviewState {
+struct BrowserState {
     home_url: Url,
 }
 
@@ -35,7 +35,7 @@ fn target_url(address: &str, search_engine: &str, home: &Url) -> Result<Url, Str
 #[tauri::command]
 fn servo_navigate(
     webview: tauri::WebviewWindow<ServoRuntime>,
-    state: State<'_, PreviewState>,
+    state: State<'_, BrowserState>,
     address: String,
     search_engine: String,
 ) -> Result<(), String> {
@@ -56,9 +56,9 @@ fn main() {
         .invoke_system(tauri_runtime_servo::INVOKE_SYSTEM_SCRIPT)
         .setup(|app| {
             let webview = app.get_webview_window("main")
-                .ok_or_else(|| std::io::Error::other("Servo preview webview not created"))?;
+                .ok_or_else(|| std::io::Error::other("Servo webview not created"))?;
             let home_url = webview.url()?;
-            app.manage(PreviewState { home_url });
+            app.manage(BrowserState { home_url });
 
             // Servo's Tauri runtime currently supports one webview per native
             // window. Native menu items are still usable on remote pages;
@@ -79,7 +79,7 @@ fn main() {
             app.on_menu_event(|app, event| {
                 let Some(webview) = app.get_webview_window("main") else { return };
                 let result = if event.id() == "nova-home" {
-                    app.try_state::<PreviewState>()
+                    app.try_state::<BrowserState>()
                         .map(|state| webview.navigate(state.home_url.clone()))
                         .unwrap_or(Ok(()))
                 } else if event.id() == "nova-back" {
@@ -92,14 +92,14 @@ fn main() {
                     return;
                 };
                 if let Err(error) = result {
-                    eprintln!("NovaBrowser Servo preview navigation error: {error}");
+                    eprintln!("NovaBrowser navigation error: {error}");
                 }
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![servo_navigate])
         .run(tauri::generate_context!())
-        .expect("NovaBrowser Servo preview failed to start");
+        .expect("NovaBrowser failed to start");
 }
 
 #[cfg(test)]

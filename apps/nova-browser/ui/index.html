@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <meta name="color-scheme" content="light dark"/>
-  <title>NovaBrowser | Servo Preview</title>
+  <title>NovaBrowser</title>
   <link rel="stylesheet" href="style.css"/>
   <script defer src="app.js"></script>
 </head>
@@ -12,12 +12,12 @@
   <main class="layout">
     <header class="topbar">
       <span class="brand"><span class="logo">N</span> NovaBrowser</span>
-      <span class="edition">SERVO ENGINE PREVIEW</span>
+      <span class="edition">SERVO ENGINEERING BUILD</span>
     </header>
     <section class="intro">
-      <div class="eyebrow">Trình duyệt thử nghiệm · Rust + Servo</div>
+      <div class="eyebrow">NovaBrowser · Rust + Servo</div>
       <h1>Khám phá web với Servo.</h1>
-      <p>Đây là bản thử engine độc lập, không dùng Obscura để hiển thị website và không cần WebView2 cho giao diện. Mục tiêu: kiểm tra tương thích và đo RAM thực tế.</p>
+      <p>Servo là engine chính được chọn. Bản phát triển hiện chưa tích hợp giao diện tab, Settings và dữ liệu đã lưu từ bản cũ. Chưa có kết quả đo RAM thực tế.</p>
       <form id="search-form" class="search-form" autocomplete="off">
         <label class="sr-only" for="address">Nhập URL hoặc từ khóa</label>
         <span class="search-mark" aria-hidden="true">⌕</span>
@@ -44,9 +44,9 @@
     <section class="instructions">
       <h2>Điều hướng khi đã vào website</h2>
       <p>Menu <strong>Navigate</strong> của Windows luôn hiển thị ngay cả khi mở website ngoài. Nhấn <kbd>Ctrl</kbd> + <kbd>L</kbd> để trở về trang nhập địa chỉ, <kbd>Alt</kbd> + <kbd>←</kbd> hoặc <kbd>→</kbd> để quay lại/tiến tới, và <kbd>Ctrl</kbd> + <kbd>R</kbd> để tải lại.</p>
-      <p>Đây chưa phải bản thay thế NovaBrowser hiện tại: runtime thử nghiệm chưa hỗ trợ nhiều Servo webview trong cùng một cửa sổ. Không đăng nhập tài khoản nhạy cảm trong bản thử nghiệm.</p>
+      <p>Adapter Tauri hiện tại chưa hỗ trợ nhiều Servo webview trong một cửa sổ, nên thanh điều hướng chưa luôn hiển thị khi mở website. Không đăng nhập tài khoản nhạy cảm trong bản phát triển.</p>
     </section>
-    <footer>NovaBrowser · Servo proof of concept · No automatic search-engine fallback</footer>
+    <footer>NovaBrowser · Servo engineering build · No automatic search-engine fallback</footer>
   </main>
 </body>
 </html>

@@ -1,15 +1,14 @@
 [package]
-name = "nova-servo-preview"
+name = "nova-browser"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.94"
 publish = false
-description = "Experimental Servo-backed native browsing proof of concept for NovaBrowser"
+description = "Selected Servo runtime for NovaBrowser"
 license = "Apache-2.0"
 
-# Separate Cargo workspace: Servo has a much larger dependency graph and a
-# newer Rust toolchain than the production Obscura desktop. This preview must
-# not change the main workspace's lockfile or ordinary builds.
+# Separate Cargo workspace isolates Servo dependencies from the old Obscura
+# reference code; this is the sole selected NovaBrowser application.
 [workspace]
 resolver = "2"
 

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "servo-preview-local",
-  "description": "Only the bundled local preview page can call Rust commands. Remote websites receive no Tauri capability.",
+  "identifier": "nova-browser-local",
+  "description": "Only the bundled local Home page can call Rust commands. Remote websites receive no Tauri capability.",
   "windows": [
     "main"
   ],

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "NovaBrowser Servo Preview",
+  "productName": "NovaBrowser",
   "version": "0.1.0",
-  "identifier": "com.novabrowser.servo.preview",
+  "identifier": "com.novabrowser.servo",
   "build": {
     "frontendDist": "ui"
   },
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "NovaBrowser — Servo Preview",
+        "title": "NovaBrowser",
         "url": "index.html",
         "width": 1140,
         "height": 760,
