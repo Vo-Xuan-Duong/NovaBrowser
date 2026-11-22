@@ -15,7 +15,7 @@ use serde_json::json;
 compile_error!("The native Servo child-window helper currently supports Windows only.");
 
 use servo::{
-    InputEvent, Key, KeyState, KeyboardEvent, Modifiers, MouseButton, NavigationRequest,
+    InputEvent, Key, KeyState, KeyboardEvent, MouseButton, NavigationRequest,
     MouseButtonAction, MouseButtonEvent, MouseMoveEvent, RenderingContext,
     Servo, ServoBuilder, WebView, WebViewBuilder, WheelDelta, WheelEvent,
     WheelMode, WindowRenderingContext,
@@ -219,10 +219,10 @@ impl State {
                 self.show_active();
             }
             Control::Back { tab } => {
-                if let Some(page) = self.pages.get(&tab) { page.go_back(); }
+                if let Some(page) = self.pages.get(&tab) { page.go_back(1); }
             }
             Control::Forward { tab } => {
-                if let Some(page) = self.pages.get(&tab) { page.go_forward(); }
+                if let Some(page) = self.pages.get(&tab) { page.go_forward(1); }
             }
             Control::Reload { tab } => {
                 if let Some(page) = self.pages.get(&tab) { page.reload(); }
@@ -380,7 +380,7 @@ impl ApplicationHandler<Event> for Embedder {
                 };
                 state.input(InputEvent::Wheel(WheelEvent::new(
                     WheelDelta { x, y, z: 0.0, mode },
-                    state.cursor.into(), Modifiers::default(),
+                    state.cursor.into(),
                 )));
             }
             WindowEvent::ModifiersChanged(modifiers) => {
