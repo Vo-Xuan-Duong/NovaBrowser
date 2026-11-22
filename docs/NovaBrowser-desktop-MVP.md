@@ -59,10 +59,14 @@ cargo test -p nova-desktop
 cargo run -p nova-desktop --release
 ```
 
-Slint default features are disabled to avoid pulling the optional software
-renderer that conflicts with the engine's pinned `swash` version. The window
-uses Winit + FemtoVG and enables image decoders for PNG frames. This must still
-be confirmed by Cargo on a local development machine.
+Slint 1.18.1 still selects an internal software-renderer dependency that
+requires `swash ^0.2.7`, even when Slint's default features are disabled.
+The Obscura paint renderer and vendored cosmic-text must therefore resolve a
+shared compatible `swash` version. NovaBrowser pins the renderer to
+`swash =0.2.10` to satisfy both dependency requirements. The window uses
+Winit + FemtoVG for presentation and Slint image decoding for PNG frames.
+This change has not yet been verified with a local Cargo build; check glyph
+rendering and variable fonts before considering it production-ready.
 
 ## Next milestones
 
