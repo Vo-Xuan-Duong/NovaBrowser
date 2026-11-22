@@ -10,7 +10,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use servo::{
-    InputEvent, Key, KeyState, KeyboardEvent, Modifiers, MouseButton,
+    InputEvent, Key, KeyState, KeyboardEvent, Modifiers, MouseButton, NavigationRequest,
     MouseButtonAction, MouseButtonEvent, MouseMoveEvent, RenderingContext,
     Servo, ServoBuilder, WebView, WebViewBuilder, WheelDelta, WheelEvent,
     WheelMode, WindowRenderingContext,
@@ -84,9 +84,10 @@ pub fn start(app: &AppHandle, sender: mpsc::Sender<Command>) -> Result<ServoBrid
                 }
             };
             let proxy = loop_.create_proxy();
-            let _ = ready_tx.send(Ok(ServoBridge { proxy: proxy.clone() }));
+            // Do not report the engine as ready before its native child window,
+            // GL rendering context and Servo instance have initialized.
             let mut app = Embedder {
-                parent, proxy, sender, state: None,
+                parent, proxy, sender, state: None, ready: Some(ready_tx),
             };
             if let Err(error) = loop_.run_app(&mut app) {
                 eprintln!("NovaBrowser Servo event loop: {error}");
@@ -133,6 +134,16 @@ impl servo::WebViewDelegate for Delegate {
     }
     fn notify_crashed(&self, _view: WebView, reason: String, _: Option<String>) {
         let _ = self.sender.send(Command::ServoError(self.tab.clone(), reason));
+    }
+
+    fn request_navigation(&self, _view: WebView, request: NavigationRequest) {
+        // A remote document must not navigate its view to privileged local
+        // schemes. In particular, file:// must never become a browser tab.
+        if matches!(request.url.scheme(), "http" | "https" | "about") {
+            request.allow();
+        } else {
+            request.deny();
+        }
     }
 }
 
@@ -235,12 +246,22 @@ struct Embedder {
     proxy: EventLoopProxy<Event>,
     sender: mpsc::Sender<Command>,
     state: Option<State>,
+    ready: Option<mpsc::SyncSender<Result<ServoBridge, String>>>,
+}
+
+impl Embedder {
+    fn fail_start(&mut self, error: String) {
+        if let Some(tx) = self.ready.take() {
+            let _ = tx.send(Err(error));
+        }
+    }
 }
 
 impl ApplicationHandler<Event> for Embedder {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_some() { return; }
         let Some(hwnd) = NonZeroIsize::new(self.parent) else {
+            self.fail_start("Missing native NovaBrowser parent HWND".into());
             event_loop.exit();
             return;
         };
@@ -257,17 +278,25 @@ impl ApplicationHandler<Event> for Embedder {
         let window = match event_loop.create_window(attrs) {
             Ok(window) => Rc::new(window),
             Err(error) => {
-                eprintln!("Servo child HWND creation failed: {error}");
+                self.fail_start(format!("Servo child HWND creation failed: {error}"));
                 event_loop.exit();
                 return;
             }
         };
-        let Ok(display) = event_loop.display_handle() else { event_loop.exit(); return; };
-        let Ok(handle) = window.window_handle() else { event_loop.exit(); return; };
+        let Ok(display) = event_loop.display_handle() else {
+            self.fail_start("Servo display handle is unavailable".into());
+            event_loop.exit();
+            return;
+        };
+        let Ok(handle) = window.window_handle() else {
+            self.fail_start("Servo child window handle is unavailable".into());
+            event_loop.exit();
+            return;
+        };
         let context = match WindowRenderingContext::new(display, handle, window.inner_size()) {
             Ok(context) => Rc::new(context),
             Err(error) => {
-                eprintln!("Servo rendering context failed: {error:?}");
+                self.fail_start(format!("Servo graphics context failed: {error:?}"));
                 event_loop.exit();
                 return;
             }
@@ -281,6 +310,9 @@ impl ApplicationHandler<Event> for Embedder {
             pages: HashMap::new(), active: None, visible: false,
             cursor: DevicePoint::new(0.0, 0.0),
         });
+        if let Some(tx) = self.ready.take() {
+            let _ = tx.send(Ok(ServoBridge { proxy: self.proxy.clone() }));
+        }
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Event) {
