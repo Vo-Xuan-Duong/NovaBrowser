@@ -4,8 +4,11 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 const MAX_HISTORY_ENTRIES: usize = 500;
+pub const MAX_TABS: usize = 8;
+const MAX_SESSION_URL_LENGTH: usize = 4096;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,12 +41,55 @@ impl Default for BrowserSettings {
     }
 }
 
+
+#[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BrowserSession {
+    pub tabs: Vec<SessionTab>,
+    pub active_index: usize,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionTab {
+    pub title: String,
+    pub url: String,
+}
+
+impl BrowserSession {
+    /// Reject invalid and privileged URLs before restoring stored tabs.
+    fn sanitized(self) -> Self {
+        let mut tabs = Vec::new();
+        let mut selected = None;
+        for (original_index, mut tab) in self.tabs.into_iter().enumerate() {
+            if tabs.len() >= MAX_TABS { break; }
+            let valid = tab.url.is_empty() || (
+                tab.url.len() <= MAX_SESSION_URL_LENGTH
+                    && Url::parse(&tab.url).ok().is_some_and(|url| {
+                        matches!(url.scheme(), "http" | "https") && url.host_str().is_some()
+                    })
+            );
+            if !valid { continue; }
+            if original_index == self.active_index {
+                selected = Some(tabs.len());
+            }
+            tab.title = tab.title.chars().take(240).collect();
+            tabs.push(tab);
+        }
+        let active_index = selected.unwrap_or_else(|| {
+            self.active_index.min(tabs.len().saturating_sub(1))
+        });
+        Self { tabs, active_index }
+    }
+}
+
 #[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
 struct BrowserData {
     bookmarks: Vec<Bookmark>,
     visits: Vec<Visit>,
     settings: BrowserSettings,
+    session: BrowserSession,
 }
 
 pub struct BrowserDataStore {
@@ -112,6 +158,16 @@ impl BrowserDataStore {
         self.lock().settings.clone()
     }
 
+    pub fn session(&self) -> BrowserSession {
+        self.lock().session.clone().sanitized()
+    }
+
+    pub fn save_session(&self, session: BrowserSession) -> Result<(), String> {
+        let mut data = self.lock();
+        data.session = session.sanitized();
+        self.save(&data)
+    }
+
     pub fn save_settings(&self, settings: BrowserSettings) -> Result<(), String> {
         let mut data = self.lock();
         data.settings = settings;
@@ -141,5 +197,68 @@ impl BrowserDataStore {
             }
         }
         self.save(&data)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn restores_tabs_from_existing_profile_without_losing_bookmarks() {
+        let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("nova-session-{}-{suffix}.json", std::process::id()));
+        let store = BrowserDataStore::load(path.clone());
+        store.toggle_bookmark("Example".into(), "https://example.com/".into()).unwrap();
+        store.save_session(BrowserSession {
+            tabs: vec![
+                SessionTab { title: "First".into(), url: "https://example.com/".into() },
+                SessionTab { title: "Second".into(), url: "https://www.rust-lang.org/".into() },
+            ],
+            active_index: 1,
+        }).unwrap();
+        let recovered = BrowserDataStore::load(path.clone());
+        assert_eq!(recovered.session().active_index, 1);
+        assert_eq!(recovered.session().tabs.len(), 2);
+        assert_eq!(recovered.session().tabs[1].title, "Second");
+        assert!(recovered.is_bookmarked("https://example.com/"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn invalid_and_excessive_tabs_are_filtered() {
+        let session = BrowserSession {
+            tabs: std::iter::once(SessionTab {
+                title: "Unsafe".into(), url: "javascript:alert(1)".into(),
+            }).chain((0..20).map(|i| SessionTab {
+                title: format!("Page {i}"), url: format!("https://example.com/{i}"),
+            })).collect(),
+            active_index: 100,
+        }.sanitized();
+        assert_eq!(session.tabs.len(), MAX_TABS);
+        assert_eq!(session.active_index, MAX_TABS - 1);
+        assert!(session.tabs.iter().all(|tab| tab.url.starts_with("https://")));
+    }
+
+    #[test]
+    fn preserves_active_tab_when_invalid_entries_are_removed() {
+        let session = BrowserSession {
+            tabs: vec![
+                SessionTab { title: "Bad".into(), url: "file:///etc/passwd".into() },
+                SessionTab { title: "A".into(), url: "https://a.example/".into() },
+                SessionTab { title: "B".into(), url: "https://b.example/".into() },
+            ],
+            active_index: 2,
+        }.sanitized();
+        assert_eq!(session.active_index, 1);
+        assert_eq!(session.tabs[session.active_index].title, "B");
+    }
+
+    #[test]
+    fn supports_legacy_profile_without_session_field() {
+        let old = r#"{"bookmarks":[],"visits":[],"settings":{"theme":"dark","homepage":"https://example.com/"}}"#;
+        let profile: BrowserData = serde_json::from_str(old).unwrap();
+        assert_eq!(profile.settings.theme, "dark");
+        assert!(profile.session.tabs.is_empty());
     }
 }

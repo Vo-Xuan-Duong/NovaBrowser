@@ -16,12 +16,11 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use navigation::{normalize_address, NavigationHistory};
-use storage::{Bookmark, BrowserDataStore, BrowserSettings, Visit};
+use storage::{Bookmark, BrowserDataStore, BrowserSession, BrowserSettings, SessionTab, Visit, MAX_TABS};
 use viewport::Viewport;
 
-const MAX_TABS: usize = 8;
-
 enum Command {
+    FrontendReady,
     Navigate(String),
     NewTab,
     CloseTab(String),
@@ -48,6 +47,7 @@ struct BrowserTab {
     page: Page,
     history: NavigationHistory,
     last_frame: Option<u64>,
+    restore_url: Option<String>,
 }
 
 impl BrowserTab {
@@ -61,7 +61,18 @@ impl BrowserTab {
             page,
             history: NavigationHistory::default(),
             last_frame: None,
+            restore_url: None,
         }
+    }
+
+    fn restored(id: String, context: Arc<BrowserContext>, viewport: Viewport, saved: SessionTab) -> Self {
+        let mut tab = Self::new(id, context, viewport);
+        tab.title = if saved.title.is_empty() { "Untitled page".into() } else { saved.title };
+        tab.address = saved.url.clone();
+        if !saved.url.is_empty() {
+            tab.restore_url = Some(saved.url);
+        }
+        tab
     }
 }
 
@@ -106,6 +117,20 @@ fn report(app: &AppHandle, address: Option<String>, message: String, loading: bo
             show_status,
         },
     );
+}
+
+
+fn persist_session(browser_data: &BrowserDataStore, tabs: &[BrowserTab], active_id: &str) {
+    let session = BrowserSession {
+        active_index: tabs.iter().position(|tab| tab.id == active_id).unwrap_or(0),
+        tabs: tabs.iter().map(|tab| SessionTab {
+            title: tab.title.clone(),
+            url: tab.address.clone(),
+        }).collect(),
+    };
+    if let Err(error) = browser_data.save_session(session) {
+        eprintln!("NovaBrowser could not save the tab session: {error}");
+    }
 }
 
 fn publish_tab_list(app: &AppHandle, tabs: &[BrowserTab], active_id: &str) {
@@ -211,7 +236,7 @@ fn navigate(
 }
 
 /// Observe same-document navigation where the engine has updated its URL.
-fn sync_history(tab: &mut BrowserTab, app: &AppHandle, browser_data: &BrowserDataStore) {
+fn sync_history(tab: &mut BrowserTab, app: &AppHandle, browser_data: &BrowserDataStore) -> bool {
     let url = tab.page.url_string();
     if (url.starts_with("https://") || url.starts_with("http://"))
         && tab.history.current() != Some(url.as_str())
@@ -229,7 +254,9 @@ fn sync_history(tab: &mut BrowserTab, app: &AppHandle, browser_data: &BrowserDat
         report(app, Some(url), message, false);
         publish_tab_title(app, &title);
         publish_buttons(app, tab);
+        return true;
     }
+    false
 }
 
 fn publish_active_tab(app: &AppHandle, tabs: &mut [BrowserTab], active_id: &str, viewport: Viewport) {
@@ -269,20 +296,47 @@ fn engine_thread(
     // client through BrowserContext while keeping their DOM and JS realm apart.
     let context = Arc::new(BrowserContext::new("nova-default".to_owned()));
     let mut viewport = Viewport::DEFAULT;
-    let first_tab = BrowserTab::new("nova-tab-1".into(), context.clone(), viewport);
-    let mut tabs = vec![first_tab];
-    let mut active_id = "nova-tab-1".to_string();
-    let mut next_tab_id = 2_u64;
-    publish_tab_list(&app, &tabs, &active_id);
+    // Recover tab metadata without opening every saved website at once.
+    // Inactive tabs are restored lazily when the user selects them.
+    let stored = browser_data.session();
+    let selected_index = stored.active_index;
+    let mut tabs: Vec<BrowserTab> = stored.tabs.into_iter().enumerate()
+        .map(|(index, saved)| BrowserTab::restored(
+            format!("nova-tab-{}", index + 1), context.clone(), viewport, saved,
+        ))
+        .collect();
+    if tabs.is_empty() {
+        tabs.push(BrowserTab::new("nova-tab-1".into(), context.clone(), viewport));
+    }
+    let mut active_id = tabs[selected_index.min(tabs.len() - 1)].id.clone();
+    let mut next_tab_id = tabs.len() as u64 + 1;
+    let mut frontend_ready = false;
 
     loop {
         match commands.recv_timeout(Duration::from_millis(500)) {
+            Ok(Command::FrontendReady) => {
+                if frontend_ready { continue; }
+                frontend_ready = true;
+                publish_active_tab(&app, &mut tabs, &active_id, viewport);
+                if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
+                    if let Some(url) = tab.restore_url.take() {
+                        navigate(tab, &runtime, viewport, &app, &browser_data, &url, None);
+                    } else if tab.address.is_empty() {
+                        let homepage = browser_data.settings().homepage;
+                        navigate(tab, &runtime, viewport, &app, &browser_data, &homepage, None);
+                    }
+                }
+                publish_tab_list(&app, &tabs, &active_id);
+                persist_session(&browser_data, &tabs, &active_id);
+            }
             Ok(Command::Navigate(raw)) => match normalize_address(&raw) {
                 Ok(url) => {
                     if let Some(index) = tabs.iter().position(|tab| tab.id == active_id) {
                         publish_tab_list(&app, &tabs, &active_id);
+                        tabs[index].restore_url = None;
                         navigate(&mut tabs[index], &runtime, viewport, &app, &browser_data, &url, None);
                         publish_tab_list(&app, &tabs, &active_id);
+                        persist_session(&browser_data, &tabs, &active_id);
                     }
                 }
                 Err(error) => report(&app, None, error.to_string(), false),
@@ -310,6 +364,7 @@ fn engine_thread(
                     );
                 }
                 publish_tab_list(&app, &tabs, &active_id);
+                persist_session(&browser_data, &tabs, &active_id);
             }
             Ok(Command::CloseTab(id)) => {
                 if tabs.len() > 1 {
@@ -325,6 +380,7 @@ fn engine_thread(
                         } else {
                             publish_tab_list(&app, &tabs, &active_id);
                         }
+                        persist_session(&browser_data, &tabs, &active_id);
                     }
                 }
             }
@@ -332,6 +388,13 @@ fn engine_thread(
                 if tabs.iter().any(|tab| tab.id == id) && active_id != id {
                     active_id = id;
                     publish_active_tab(&app, &mut tabs, &active_id, viewport);
+                    if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
+                        if let Some(url) = tab.restore_url.take() {
+                            navigate(tab, &runtime, viewport, &app, &browser_data, &url, None);
+                            publish_tab_list(&app, &tabs, &active_id);
+                        }
+                    }
+                    persist_session(&browser_data, &tabs, &active_id);
                 }
             }
             Ok(Command::Back) => {
@@ -339,6 +402,7 @@ fn engine_thread(
                     if let Some((index, url)) = tab.history.previous() {
                         navigate(tab, &runtime, viewport, &app, &browser_data, &url, Some(index));
                         publish_tab_list(&app, &tabs, &active_id);
+                        persist_session(&browser_data, &tabs, &active_id);
                     }
                 }
             }
@@ -347,6 +411,7 @@ fn engine_thread(
                     if let Some((index, url)) = tab.history.next() {
                         navigate(tab, &runtime, viewport, &app, &browser_data, &url, Some(index));
                         publish_tab_list(&app, &tabs, &active_id);
+                        persist_session(&browser_data, &tabs, &active_id);
                     }
                 }
             }
@@ -355,6 +420,7 @@ fn engine_thread(
                     if let Some(url) = tab.history.current().map(str::to_owned) {
                         navigate(tab, &runtime, viewport, &app, &browser_data, &url, None);
                         publish_tab_list(&app, &tabs, &active_id);
+                        persist_session(&browser_data, &tabs, &active_id);
                     }
                 }
             }
@@ -377,9 +443,12 @@ fn engine_thread(
                     if !tab.address.is_empty() {
                         input::click(&mut tab.page, viewport, x, y);
                         runtime.block_on(tab.page.settle(60));
-                        sync_history(tab, &app, &browser_data);
+                        let history_changed = sync_history(tab, &app, &browser_data);
                         capture(&tab.page, viewport, &app, &mut tab.last_frame);
                         publish_tab_list(&app, &tabs, &active_id);
+                        if history_changed {
+                            persist_session(&browser_data, &tabs, &active_id);
+                        }
                     }
                 }
             }
@@ -397,13 +466,19 @@ fn engine_thread(
                     if !tab.address.is_empty() {
                         input::key(&mut tab.page, &key);
                         runtime.block_on(tab.page.settle(40));
-                        sync_history(tab, &app, &browser_data);
+                        let history_changed = sync_history(tab, &app, &browser_data);
                         capture(&tab.page, viewport, &app, &mut tab.last_frame);
                         publish_tab_list(&app, &tabs, &active_id);
+                        if history_changed {
+                            persist_session(&browser_data, &tabs, &active_id);
+                        }
                     }
                 }
             }
-            Ok(Command::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Ok(Command::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                persist_session(&browser_data, &tabs, &active_id);
+                break;
+            },
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
                     if !tab.address.is_empty() {
@@ -411,9 +486,12 @@ fn engine_thread(
                             tab.page.settle(50).await;
                             tab.page.prepare_screenshot_resources(75).await;
                         });
-                        sync_history(tab, &app, &browser_data);
+                        let history_changed = sync_history(tab, &app, &browser_data);
                         capture(&tab.page, viewport, &app, &mut tab.last_frame);
                         publish_tab_list(&app, &tabs, &active_id);
+                        if history_changed {
+                            persist_session(&browser_data, &tabs, &active_id);
+                        }
                     }
                 }
             }
@@ -430,6 +508,11 @@ fn send_command(state: &State<'_, EngineState>, command: Command) -> Result<(), 
         .commands
         .send(command)
         .map_err(|error| format!("Browser engine stopped: {error}"))
+}
+
+#[tauri::command]
+fn browser_frontend_ready(state: State<'_, EngineState>) -> Result<(), String> {
+    send_command(&state, Command::FrontendReady)
 }
 
 #[tauri::command]
@@ -566,6 +649,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            browser_frontend_ready,
             browser_navigate,
             browser_new_tab,
             browser_close_tab,

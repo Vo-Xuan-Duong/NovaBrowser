@@ -235,9 +235,9 @@
         homepage: homepageSetting.value,
       });
       applyTheme(saved.theme);
-      address.value = saved.homepage;
+      // Changing a homepage preference should not navigate away from the
+      // current tab or replace the current session.
       closeSettings();
-      await call("browser_navigate", { address: saved.homepage });
     } catch (error) {
       settingsError.textContent = String(error);
       settingsError.hidden = false;
@@ -367,16 +367,24 @@
         if (libraryMode === "bookmarks" && !libraryPanel.hidden) void renderLibrary("bookmarks");
       }),
       listen("browser-frame", ({ payload }) => {
-        pageFrame.src = `data:image/png;base64,${payload}`;
+        // A newly activated lazy tab has no frame until its page loads.
+        // Clear the previous tab's image rather than showing stale content.
+        if (payload) {
+          pageFrame.src = `data:image/png;base64,${payload}`;
+          pageFrame.style.visibility = "visible";
+        } else {
+          pageFrame.removeAttribute("src");
+          pageFrame.style.visibility = "hidden";
+        }
       }),
     ]);
     await publishSize();
     const settings = await call("browser_get_settings");
-    if (settings) {
-      applyTheme(settings.theme);
-      address.value = settings.homepage;
-      await call("browser_navigate", { address: settings.homepage });
-    }
+    if (settings) applyTheme(settings.theme);
+    // Register listeners *before* the engine publishes restored tabs.
+    // Startup is one-shot; the engine decides between restoring a session
+    // and opening the configured homepage on the first launch.
+    await call("browser_frontend_ready");
   }
 
   void connectEvents().catch(showError);
