@@ -36,6 +36,29 @@
   const settingsTrigger = document.getElementById("show-settings");
 
   let lastSize = "";
+  // The optional Servo build paints site content in a native child HWND.
+  // The trusted NovaBrowser UI remains the only Tauri-capable document.
+  let nativeServo = false;
+  let nativeLayoutQueued = false;
+  let lastNativeLayout = "";
+
+  function scheduleNativeLayout(force = false) {
+    if (!nativeServo || nativeLayoutQueued) return;
+    nativeLayoutQueued = true;
+    requestAnimationFrame(() => {
+      nativeLayoutQueued = false;
+      const rect = pageArea.getBoundingClientRect();
+      const visible = !pageArea.hidden && !settingsView.isOpen()
+        && libraryPanel.hidden && blockedPanel.hidden
+        && /^https?:\/\//i.test(currentTabAddress);
+      // The Rust command converts CSS pixels to physical parent-client pixels.
+      const top = Math.max(0, Math.round(rect.top * 100) / 100);
+      const state = [top, visible].join("|");
+      if (!force && lastNativeLayout === state) return;
+      lastNativeLayout = state;
+      void call("browser_surface_layout", { top, visible });
+    });
+  }
   let libraryMode = "bookmarks";
   let activeTabId = null;
   let currentTitle = "New tab";
@@ -161,6 +184,7 @@
       homeView.hide();
       pageArea.hidden = true;
       bookmarkButton.disabled = true;
+      scheduleNativeLayout();
       return;
     }
     const isHome = currentTabAddress === "nova://home";
@@ -175,6 +199,7 @@
       lastSize = "";
       void publishSize();
     }
+    scheduleNativeLayout();
   }
 
   const settingsView = window.NovaSettings.create({
@@ -186,6 +211,7 @@
       bookmarkButton.disabled = true;
       settingsTrigger.classList.add("is-active");
       refreshActiveTabChrome();
+      scheduleNativeLayout();
     },
     onRoute(section) {
       address.value = section === "general" ? "nova://settings" : `nova://settings/${section}`;
@@ -349,6 +375,7 @@
 
   function closeLibrary() {
     libraryPanel.hidden = true;
+    scheduleNativeLayout();
   }
 
   async function renderLibrary(mode) {
@@ -361,6 +388,7 @@
     document.getElementById("history-tab").classList.toggle("is-active", isHistory);
     document.getElementById("bookmarks-tab").classList.toggle("is-active", !isHistory);
     libraryPanel.hidden = false;
+    scheduleNativeLayout();
     libraryList.replaceChildren();
 
     const entries = await call(isHistory ? "browser_get_history" : "browser_get_bookmarks");
@@ -487,6 +515,7 @@
   });
 
   pageArea.addEventListener("click", (event) => {
+    if (nativeServo) return; // Servo receives native mouse events.
     pageArea.focus();
     const rect = pageArea.getBoundingClientRect();
     void call("browser_click", {
@@ -496,6 +525,7 @@
   });
 
   pageArea.addEventListener("wheel", (event) => {
+    if (nativeServo) return;
     event.preventDefault();
     const rect = pageArea.getBoundingClientRect();
     void call("browser_scroll", {
@@ -507,6 +537,7 @@
   }, { passive: false });
 
   pageArea.addEventListener("keydown", (event) => {
+    if (nativeServo) return;
     if (event.ctrlKey || event.altKey || event.metaKey) return;
     let key = event.key;
     if (key === "Backspace") key = "__NOVA_BACKSPACE__";
@@ -575,6 +606,10 @@
   });
 
   function publishSize() {
+    if (nativeServo) {
+      scheduleNativeLayout();
+      return Promise.resolve();
+    }
     const rect = pageArea.getBoundingClientRect();
     const size = `${Math.round(rect.width)}x${Math.round(rect.height)}`;
     if (size === lastSize || rect.width < 1 || rect.height < 1) return Promise.resolve();
@@ -582,7 +617,14 @@
     return call("browser_resize", { width: rect.width, height: rect.height });
   }
 
-  new ResizeObserver(publishSize).observe(pageArea);
+  new ResizeObserver(() => {
+    void publishSize();
+    scheduleNativeLayout();
+  }).observe(pageArea);
+  window.addEventListener("resize", () => {
+    lastNativeLayout = "";
+    scheduleNativeLayout(true);
+  });
 
   async function connectEvents() {
     await Promise.all([
@@ -611,6 +653,7 @@
         updateSearchBlock(payload);
       }),
       listen("browser-frame", ({ payload }) => {
+        if (nativeServo) return;
         // A newly activated lazy tab has no frame until its page loads.
         // Clear the previous tab's image rather than showing stale content.
         if (payload && blockedPanel.hidden) {
@@ -622,6 +665,15 @@
         }
       }),
     ]);
+    // The backend advertises the actual renderer; no UI engine guessing.
+    nativeServo = await invoke("browser_get_engine_mode") === "servo";
+    if (nativeServo) {
+      pageFrame.removeAttribute("src");
+      pageFrame.style.visibility = "hidden";
+      document.documentElement.dataset.pageEngine = "servo";
+      lastNativeLayout = "";
+      scheduleNativeLayout(true);
+    }
     await publishSize();
     const settings = await call("browser_get_settings");
     if (settings) settingsView.applySaved(settings);
