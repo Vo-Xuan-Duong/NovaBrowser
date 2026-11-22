@@ -35,6 +35,11 @@ fn report(ui: &Weak<NovaWindow>, address: Option<String>, status: String, loadin
             if let Some(address) = address {
                 window.set_address(address.into());
             }
+            let show_status = status.starts_with("Navigation error:")
+                || status.starts_with("Engine startup failed:")
+                || status.starts_with("Invalid")
+                || status.starts_with("Only ");
+            window.set_show_status(show_status);
             window.set_status(status.into());
             window.set_loading(loading);
         }

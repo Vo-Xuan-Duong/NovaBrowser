@@ -1,35 +1,33 @@
-import { LineEdit } from "std-widgets.slint";
+// Chrome-inspired light browser chrome for NovaBrowser.
+// One active tab is real; other-tab controls are deliberately not faked.
+// Native Windows title-bar controls remain owned by the window manager.
 
-// Fluent-inspired browser chrome. One live tab is supported by the engine;
-// this control does not pretend to open tabs that do not exist yet.
-component NavAction inherits Rectangle {
+component ToolbarAction inherits Rectangle {
     in property <string> icon-data: "";
     in property <bool> available: true;
     callback activated();
 
-    width: 38px;
-    height: 38px;
-    border-radius: 10px;
-    background: !root.available ? #1a2639
-        : hit.pressed ? #405475
-        : hit.has-hover ? #344560
-        : #233149;
-    border-width: 1px;
-    border-color: !root.available ? #263247 : hit.has-hover ? #60769b : #34445d;
+    width: 36px;
+    height: 36px;
+    border-radius: 18px;
+    background: !root.available ? transparent
+        : pointer.pressed ? #dce5f4
+        : pointer.has-hover ? #edf1f7
+        : transparent;
 
     Path {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
-        width: 19px;
-        height: 19px;
+        width: 20px;
+        height: 20px;
         commands: root.icon-data;
-        stroke: root.available ? #f2f6ff : #718198;
+        stroke: root.available ? #414b5b : #b3bac6;
         stroke-width: 2px;
         stroke-line-cap: round;
         stroke-line-join: round;
     }
 
-    hit := TouchArea {
+    pointer := TouchArea {
         enabled: root.available;
         mouse-cursor: pointer;
         clicked => { root.activated(); }
@@ -37,17 +35,18 @@ component NavAction inherits Rectangle {
 }
 
 export component NovaWindow inherits Window {
-    title: "NovaBrowser";
+    title: root.tab-title + " - NovaBrowser";
     width: 1280px;
     height: 820px;
     min-width: 740px;
     min-height: 500px;
-    background: #eef2f8;
+    background: #ffffff;
 
     in-out property <string> address: "https://example.com";
     in property <string> tab-title: "New tab";
     in property <string> status: "Starting browser engine";
     in property <bool> loading: false;
+    in property <bool> show-status: false;
     in property <bool> can-back: false;
     in property <bool> can-forward: false;
     in property <image> page-image;
@@ -69,53 +68,49 @@ export component NovaWindow inherits Window {
     VerticalLayout {
         spacing: 0px;
 
-        // Single active tab: reserve a tab strip for the future Tab Manager.
+        // Rounded, connected-looking active tab on a muted strip.
         Rectangle {
-            height: 43px;
-            background: #121b2b;
+            height: 42px;
+            background: #dfe4ed;
+
             HorizontalLayout {
-                padding-left: 14px;
-                padding-right: 16px;
-                padding-top: 5px;
+                padding-left: 13px;
+                padding-right: 13px;
+                padding-top: 7px;
                 padding-bottom: 0px;
-                spacing: 11px;
+                spacing: 8px;
 
                 Rectangle {
-                    width: 26px;
-                    height: 26px;
-                    border-radius: 8px;
-                    background: #4387f6;
-                    Text {
-                        text: "N";
-                        font-size: 16px;
-                        font-weight: 700;
-                        color: #ffffff;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                }
+                    width: 245px;
+                    height: 35px;
+                    border-radius: 13px;
+                    background: #ffffff;
 
-                Rectangle {
-                    width: 250px;
-                    height: 36px;
-                    border-radius: 10px;
-                    background: #27344b;
-                    border-width: 1px;
-                    border-color: #394b68;
                     HorizontalLayout {
-                        padding-left: 12px;
-                        padding-right: 11px;
-                        spacing: 9px;
+                        padding-left: 13px;
+                        padding-right: 13px;
+                        spacing: 10px;
+
                         Rectangle {
-                            width: 8px;
-                            height: 8px;
-                            border-radius: 4px;
-                            background: root.loading ? #76b5ff : #5e9bff;
+                            width: 17px;
+                            height: 17px;
+                            border-radius: 9px;
+                            background: #3d84e7;
+
+                            Text {
+                                text: "N";
+                                color: white;
+                                font-size: 10px;
+                                font-weight: 700;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
                         }
+
                         Text {
                             horizontal-stretch: 1;
                             text: root.loading ? "Loading..." : root.tab-title;
-                            color: #edf3fd;
+                            color: #263248;
                             font-size: 13px;
                             font-weight: 500;
                             vertical-alignment: center;
@@ -125,87 +120,135 @@ export component NovaWindow inherits Window {
                 }
 
                 Rectangle { horizontal-stretch: 1; background: transparent; }
-                Text {
-                    text: "NOVA  /  DESKTOP";
-                    font-size: 10px;
-                    font-weight: 600;
-                    color: #8191ab;
-                    vertical-alignment: center;
-                }
             }
         }
 
-        // Navigation: all visible controls are connected to the Rust engine.
+        // Compact toolbar: Back / Forward / Reload and a single omnibox.
         Rectangle {
-            height: 60px;
-            background: #1c283c;
-            HorizontalLayout {
-                padding-left: 14px;
-                padding-right: 14px;
-                padding-top: 10px;
-                padding-bottom: 10px;
-                spacing: 9px;
+            height: 56px;
+            background: #ffffff;
 
-                NavAction {
-                    icon-data: "M 18 6 L 12 12 L 18 18 M 12 12 L 5 12";
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 14px;
+                padding-top: 8px;
+                padding-bottom: 8px;
+                spacing: 5px;
+
+                ToolbarAction {
+                    icon-data: "M 18 5 L 11 12 L 18 19 M 11 12 L 5 12";
                     available: root.can-back;
                     activated => { root.back(); }
                 }
-                NavAction {
-                    icon-data: "M 6 6 L 12 12 L 6 18 M 12 12 L 19 12";
+
+                ToolbarAction {
+                    icon-data: "M 6 5 L 13 12 L 6 19 M 13 12 L 19 12";
                     available: root.can-forward;
                     activated => { root.forward(); }
                 }
-                NavAction {
-                    icon-data: "M 20 12 A 8 8 0 1 1 17 6 M 20 5 L 20 12 L 13 12";
+
+                ToolbarAction {
+                    icon-data: "M 20 11 A 8 8 0 1 0 18 17 M 20 5 L 20 11 L 14 11";
                     activated => { root.reload(); }
                 }
 
-                Rectangle {
-                    width: 1px;
-                    height: 27px;
-                    background: #3e4e65;
-                }
+                Rectangle { width: 4px; background: transparent; }
 
-                address-edit := LineEdit {
+                // The TextInput is drawn inside a custom pill instead of
+                // inheriting the platform-dependent LineEdit background.
+                omnibox := Rectangle {
                     horizontal-stretch: 1;
-                    height: 38px;
-                    font-size: 14px;
-                    text <=> root.address;
-                    placeholder-text: "Search or enter a web address";
-                    accepted(text) => { root.navigate(text); }
-                }
+                    height: 40px;
+                    border-radius: 20px;
+                    background: address-edit.has-focus ? #ffffff : #f0f3f8;
+                    border-width: address-edit.has-focus ? 2px : 1px;
+                    border-color: address-edit.has-focus ? #75a5ef : #edf0f5;
 
-                go-button := Rectangle {
-                    width: 62px;
-                    height: 38px;
-                    border-radius: 10px;
-                    background: go-hit.pressed ? #2754ac
-                        : go-hit.has-hover ? #5b9afa
-                        : #3c83ed;
-                    border-width: 1px;
-                    border-color: #76aaff;
-                    Text {
-                        text: "Go";
-                        font-size: 14px;
-                        font-weight: 600;
-                        color: #ffffff;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
+                    HorizontalLayout {
+                        padding-left: 14px;
+                        padding-right: 12px;
+                        spacing: 11px;
+
+                        // Neutral site-control symbol: not a misleading
+                        // security lock or an unimplemented settings button.
+                        Path {
+                            width: 18px;
+                            height: 18px;
+                            commands: "M 3 7 H 21 M 3 17 H 21 M 9 5 V 9 M 15 15 V 19";
+                            stroke: #69788c;
+                            stroke-width: 1.8px;
+                            stroke-line-cap: round;
+                        }
+
+                        input-clip := Rectangle {
+                            horizontal-stretch: 1;
+                            height: 36px;
+                            background: transparent;
+                            clip: true;
+
+                            address-edit := TextInput {
+                                in-out property <length> text-offset: 0px;
+                                x: self.text-offset;
+                                y: 0px;
+                                width: max(parent.width, self.preferred-width + 12px);
+                                height: parent.height;
+                                text <=> root.address;
+                                single-line: true;
+                                font-size: 14px;
+                                color: #252b36;
+                                selection-background-color: #b9d7ff;
+                                selection-foreground-color: #18283c;
+                                vertical-alignment: center;
+
+                                cursor-position-changed(position) => {
+                                    if (position.x + self.text-offset > parent.width - 12px) {
+                                        self.text-offset = parent.width - position.x - 12px;
+                                    } else if (position.x + self.text-offset < 0px) {
+                                        self.text-offset = -position.x;
+                                    }
+                                }
+                                accepted => { root.navigate(self.text); }
+                            }
+
+                            Text {
+                                visible: root.address == "" && !address-edit.has-focus;
+                                width: 100%;
+                                height: 100%;
+                                text: "Search or type a URL";
+                                color: #808b9d;
+                                font-size: 14px;
+                                vertical-alignment: center;
+                            }
+                        }
                     }
-                    go-hit := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => { root.navigate(root.address); }
+
+                    // Keep the whole left/right pill padding clickable.
+                    // This does not obscure the TextInput in the center.
+                    omni-pointer := TouchArea {
+                        x: 0px;
+                        y: 0px;
+                        width: 30px;
+                        height: 100%;
+                        mouse-cursor: text;
+                        clicked => {
+                            address-edit.focus();
+                            address-edit.select-all();
+                        }
                     }
                 }
             }
         }
 
-        // The page occupies the remaining space; viewport, hit-testing and
-        // rendering continue to follow the actual web-panel size.
+        Rectangle {
+            height: 2px;
+            background: root.loading ? #6a9ef5 : #ffffff;
+        }
+
+        // Web area remains edge to edge; no persistent bottom status bar.
         web-panel := Rectangle {
             background: #ffffff;
             vertical-stretch: 1;
+
             browser-focus := FocusScope {
                 width: 100%;
                 height: 100%;
@@ -249,6 +292,7 @@ export component NovaWindow inherits Window {
                     height: 100%;
                     image-fit: fill;
                 }
+
                 TouchArea {
                     width: 100%;
                     height: 100%;
@@ -267,41 +311,28 @@ export component NovaWindow inherits Window {
                     }
                 }
             }
-        }
 
-        Rectangle {
-            height: 2px;
-            background: root.loading ? #478bf5 : #dce4ef;
-        }
+            // Chrome-style status bubble: only loading and errors are shown.
+            Rectangle {
+                visible: root.loading || root.show-status;
+                x: 0px;
+                y: parent.height - self.height;
+                width: min(parent.width, 470px);
+                height: 28px;
+                background: #f8fafd;
+                border-radius: 6px;
+                border-width: 1px;
+                border-color: #dce3ec;
 
-        Rectangle {
-            height: 26px;
-            background: #f0f4fa;
-            HorizontalLayout {
-                padding-left: 13px;
-                padding-right: 13px;
-                spacing: 9px;
-
-                Rectangle {
-                    width: 6px;
-                    height: 6px;
-                    border-radius: 3px;
-                    background: root.loading ? #4083ef : #31a47b;
-                }
                 Text {
-                    horizontal-stretch: 1;
+                    x: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height;
                     text: root.status;
-                    color: #53647b;
+                    color: #526071;
                     font-size: 11px;
                     vertical-alignment: center;
                     overflow: elide;
-                }
-                Text {
-                    text: "NOVA ENGINE";
-                    color: #8390a3;
-                    font-size: 10px;
-                    font-weight: 600;
-                    vertical-alignment: center;
                 }
             }
         }

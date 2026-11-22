@@ -77,18 +77,29 @@ rendering and variable fonts before considering it production-ready.
 5. Security isolation, crash handling, improved HTML/CSS/JS compatibility.
 
 
-## Desktop shell styling
+## Chrome-inspired light browser chrome (UI iteration)
 
-The native Slint window now uses a Fluent-inspired two-row browser chrome:
-a single active-tab header (with live document title), compact vector-path
-Back/Forward/Reload controls, a prominent address field and Go action, and
-a low-profile loading/status strip. Disabled navigation actions are visually
-distinguished and are not clickable. The rendered web viewport and mouse
-coordinate mapping are unchanged.
+The native shell now follows Chrome's familiar desktop layout: a light tab
+strip with one selected rounded tab, a compact white toolbar, three monochrome
+Back/Forward/Reload controls and a wide rounded omnibox.
 
-Keyboard shortcuts while the web viewport has focus: Ctrl+L selects the
-address bar, Ctrl+R and F5 reload the page. These shortcuts are currently
-handled by the desktop window, not by a full browser input event pipeline.
+The omnibox is a custom-styled Slint TextInput. Enter submits the text to the
+existing address normalizer; Ctrl+L focuses and selects the current URL while
+the web viewport has keyboard focus. Ctrl+R and F5 reload the page.
 
-The tab strip is intentionally limited to a single active tab: multi-tab
-management must not be implied until the backend supports it.
+The tab title reflects the loaded document. The browser uses a neutral
+site-controls glyph, **not a lock or verified security indicator**, because
+this MVP does not expose certificate or permission information to the shell.
+
+The always-visible bottom status bar has been replaced with a small bubble
+shown during navigation or on errors. This leaves the web content full height.
+Mouse coordinate mapping continues to use the actual web-panel dimensions.
+
+Only one tab is implemented. The tab strip is visual groundwork for a future
+tab manager; it deliberately offers no fake close, new-tab, bookmark or menu
+controls. Chrome is a visual reference, not a copied implementation or a claim
+of browser-equivalent functionality.
+
+This UI patch has not been compiled in the editing environment. Run the
+local commands above, including a manual test of long URLs, IME entry,
+keyboard shortcuts, and window resizing.
