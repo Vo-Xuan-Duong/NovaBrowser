@@ -38,6 +38,7 @@ pub struct BrowserSettings {
     pub save_history: bool,
     pub show_home_button: bool,
     pub show_bookmarks_bar: bool,
+    pub language: String,
 }
 
 impl Default for BrowserSettings {
@@ -51,6 +52,7 @@ impl Default for BrowserSettings {
             save_history: true,
             show_home_button: false,
             show_bookmarks_bar: false,
+            language: "system".to_string(),
         }
     }
 }
@@ -71,6 +73,9 @@ impl BrowserSettings {
         }
         if !matches!(self.search_engine.as_str(), "google" | "bing" | "duckduckgo") {
             self.search_engine = "google".to_string();
+        }
+        if !matches!(self.language.as_str(), "system" | "en" | "vi") {
+            self.language = "system".to_string();
         }
         self.homepage = if self.homepage.len() <= MAX_SESSION_URL_LENGTH {
             normalize_address_with_search(&self.homepage, &self.search_engine)
@@ -301,6 +306,7 @@ mod tests {
             save_history: false,
             show_home_button: true,
             show_bookmarks_bar: true,
+            language: "vi".into(),
         };
         store.save_settings(changed.clone()).unwrap();
         let recovered = BrowserDataStore::load(path.clone());
@@ -321,6 +327,21 @@ mod tests {
         assert!(!safe.save_history);
         assert!(!safe.show_home_button);
         assert!(!safe.show_bookmarks_bar);
+        assert_eq!(safe.language, "system");
+    }
+
+    #[test]
+    fn language_setting_accepts_supported_values_and_rejects_invalid_values() {
+        for language in ["system", "en", "vi"] {
+            let setting = BrowserSettings { language: language.into(), ..BrowserSettings::default() };
+            assert_eq!(setting.sanitized().language, language);
+        }
+        let setting = BrowserSettings { language: "ar".into(), ..BrowserSettings::default() };
+        assert_eq!(setting.sanitized().language, "system");
+        let legacy: BrowserSettings = serde_json::from_str(
+            r#"{"theme":"light","homepage":"https://example.com/"}"#
+        ).unwrap();
+        assert_eq!(legacy.sanitized().language, "system");
     }
 
     #[test]

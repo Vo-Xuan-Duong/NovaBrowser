@@ -5,6 +5,9 @@
   const icons = window.NovaIcons;
   if (!icons) throw new Error("Lucide icon registry failed to load");
   icons.hydrate();
+  const i18n = window.NovaI18n;
+  if (!i18n) throw new Error("Browser translations failed to load");
+  i18n.setLanguage("system");
   const { listen } = window.__TAURI__.event;
   const appWindow = window.__TAURI__.window.getCurrentWindow();
   const pageArea = document.getElementById("page-area");
@@ -29,6 +32,7 @@
   let activeTabId = null;
   let currentTitle = "New tab";
   let currentTabAddress = "";
+  let lastTabs = [];
   let currentPreferences = { homepage: "https://example.com/", showHomeButton: false, showBookmarksBar: false };
   let bookmarksRefreshSeq = 0;
 
@@ -55,7 +59,7 @@
       if (!Array.isArray(entries) || entries.length === 0) {
         const empty = document.createElement("span");
         empty.className = "bookmarks-bar-empty";
-        empty.textContent = "Bookmarks you save will appear here";
+        empty.textContent = i18n.t("Bookmarks you save will appear here");
         bookmarksBar.append(empty);
         return;
       }
@@ -113,13 +117,14 @@
     if (!active) return;
     const showingSettings = settingsView.isOpen();
     const title = active.querySelector(".tab-title");
-    if (title) title.textContent = showingSettings ? "Settings" : currentTitle;
+    if (title) title.textContent = showingSettings ? i18n.t("Settings") : i18n.t(currentTitle);
     const icon = active.querySelector(".brand-mark");
     if (icon) icon.replaceChildren(icons.create(showingSettings ? "settings-2" : "globe"));
-    document.title = showingSettings ? "Settings - NovaBrowser" : `${currentTitle} - NovaBrowser`;
+    document.title = showingSettings ? i18n.t("Settings") + " - NovaBrowser" : `${i18n.t(currentTitle)} - NovaBrowser`;
   }
 
   function renderTabs(tabs) {
+    lastTabs = [...tabs];
     tabList.replaceChildren();
     for (const tab of tabs) {
       const item = document.createElement("div");
@@ -140,14 +145,15 @@
       mark.append(icons.create(tab.active && settingsView.isOpen() ? "settings-2" : "globe"));
       const title = document.createElement("span");
       title.className = "tab-title";
-      title.textContent = tab.active && settingsView.isOpen() ? "Settings" : (tab.title || "New tab");
+      title.textContent = tab.active && settingsView.isOpen()
+        ? i18n.t("Settings") : i18n.t(tab.title || "New tab");
       if (tab.active) title.id = "tab-title";
       const close = document.createElement("button");
       close.className = "tab-close";
       close.type = "button";
       close.append(icons.create("x"));
-      close.title = "Close tab";
-      close.setAttribute("aria-label", `Close ${tab.title || "tab"}`);
+      close.title = i18n.t("Close tab");
+      close.setAttribute("aria-label", i18n.t("Close {title}", { title: tab.title || i18n.t("New tab") }));
       close.hidden = !tab.closable;
       close.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -167,7 +173,7 @@
   }
 
   function showError(error) {
-    statusMessage.textContent = String(error);
+    statusMessage.textContent = i18n.t(String(error));
     statusBubble.classList.add("is-visible");
   }
 
@@ -215,7 +221,7 @@
   function setBookmarkIcon(bookmarked) {
     bookmarkButton.classList.toggle("is-bookmarked", bookmarked);
     bookmarkButton.replaceChildren(icons.create(bookmarked ? "bookmark-check" : "bookmark"));
-    const label = bookmarked ? "Remove bookmark" : "Bookmark this page";
+    const label = i18n.t(bookmarked ? "Remove bookmark" : "Bookmark this page");
     bookmarkButton.setAttribute("aria-label", label);
     bookmarkButton.title = label;
   }
@@ -255,7 +261,7 @@
     if (settingsView.isOpen()) closeSettings();
     libraryMode = mode;
     const isHistory = mode === "history";
-    libraryTitle.textContent = isHistory ? "Browsing history" : "Bookmarks";
+    libraryTitle.textContent = i18n.t(isHistory ? "Browsing history" : "Bookmarks");
     libraryTitleIcon.replaceChildren(icons.create(isHistory ? "clock" : "folder-open"));
     historyFooter.hidden = !isHistory;
     document.getElementById("history-tab").classList.toggle("is-active", isHistory);
@@ -268,7 +274,7 @@
     if (entries.length === 0) {
       const empty = document.createElement("div");
       empty.className = "library-empty";
-      empty.textContent = isHistory ? "Pages you visit will appear here" : "Your saved pages will appear here";
+      empty.textContent = i18n.t(isHistory ? "Pages you visit will appear here" : "Your saved pages will appear here");
       libraryList.append(empty);
       return;
     }
@@ -285,7 +291,7 @@
       const subtitle = document.createElement("span");
       subtitle.className = "entry-url";
       subtitle.textContent = isHistory && entry.visitedAt
-        ? `${new Date(entry.visitedAt * 1000).toLocaleString()} · ${entry.url}`
+        ? `${new Date(entry.visitedAt * 1000).toLocaleString(i18n.locale())} · ${entry.url}`
         : entry.url;
       open.append(title, subtitle);
       open.addEventListener("click", () => {
@@ -300,7 +306,7 @@
         remove.className = "entry-remove";
         remove.type = "button";
         remove.append(icons.create("trash"));
-        remove.setAttribute("aria-label", `Remove ${entry.title || entry.url}`);
+        remove.setAttribute("aria-label", i18n.t("Remove {name}", { name: entry.title || entry.url }));
         remove.addEventListener("click", async () => {
           await call("browser_remove_bookmark", { url: entry.url });
           await refreshBookmarkState();
@@ -368,6 +374,17 @@
   });
   titlebar.addEventListener("dblclick", (event) => {
     if (!event.target.closest(".tab, #new-tab, .window-controls")) void appWindow.toggleMaximize();
+  });
+
+  // Existing tab and history data are rendered dynamically; rebuild only
+  // those chrome elements when a saved or preview language changes.
+  i18n.onChange(() => {
+    if (lastTabs.length) renderTabs(lastTabs);
+    refreshActiveTabChrome();
+    setBookmarkIcon(bookmarkButton.classList.contains("is-bookmarked"));
+    if (!libraryPanel.hidden) void renderLibrary(libraryMode);
+    if (!bookmarksBar.hidden) void refreshBookmarksBar();
+    if (statusBubble.classList.contains("is-visible")) i18n.apply();
   });
 
   document.getElementById("new-tab").addEventListener("click", () => {
@@ -456,7 +473,7 @@
           if (!settingsView.isOpen() && document.activeElement !== address) address.value = payload.address;
         }
         if (!settingsView.isOpen()) void refreshBookmarkState();
-        statusMessage.textContent = payload.message;
+        statusMessage.textContent = i18n.t(payload.message);
         statusBubble.classList.toggle("is-visible", payload.showStatus);
         loadingIndicator.classList.toggle("is-loading", payload.loading);
       }),

@@ -195,3 +195,27 @@ the home URL, add/remove a bookmark, clear bookmark/history separately,
 resize the Tauri window and inspect titlebar control alignment, and restart
 to confirm preferences survive. Test the engine with cargo check/test locally;
 no GitHub Actions workflows are used.
+
+## Browser interface languages
+
+NovaBrowser now supports English and Vietnamese for the native browser
+interface, including the tab strip, navigation tooltips, bookmark/history
+library, settings navigation, preference labels, confirmations and other
+UI-generated messages. This does **not** translate website content or
+Obscura/V8 engine diagnostic messages.
+
+In `nova://settings/language` choose **Follow system language** (the default),
+**Tiếng Việt**, or **English**. The system option uses the WebView's primary
+preferred language: Vietnamese for `vi`/`vi-*`, English otherwise. Changes
+are previewed immediately; Save persists them to the existing user profile,
+while Discard or Close restores the last saved preference. Older profiles
+without the `language` property migrate to `system`, and unsupported locale
+values are replaced with `system` during load. No restart, network
+connection, external translation service, or package download is needed.
+
+Translations are stored in `ui/i18n.js` as a keyed Vietnamese catalog with
+English source-text fallbacks. UI text is localized without replacing icon
+elements. Dynamically generated tab labels, history dates and bookmark
+notifications use the same catalog. The code is structured for additional
+locale catalogs later. Do not use this preference to claim full website
+translation or set a misleading web security indicator.

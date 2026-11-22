@@ -7,6 +7,7 @@
     <title>NovaBrowser</title>
     <link rel="stylesheet" href="app.css" />
     <script src="icons.js" defer></script>
+    <script src="i18n.js" defer></script>
     <script src="settings.js" defer></script>
     <script src="app.js" defer></script>
   </head>
@@ -109,6 +110,7 @@
           <nav class="preferences-navigation" id="settings-navigation" aria-label="Settings sections">
             <button class="preferences-nav-item is-active" type="button" data-settings-section="general" aria-current="page"><span class="icon-slot" data-icon="house" aria-hidden="true"></span>General</button>
             <button class="preferences-nav-item" type="button" data-settings-section="appearance"><span class="icon-slot" data-icon="palette" aria-hidden="true"></span>Appearance</button>
+            <button class="preferences-nav-item" type="button" data-settings-section="language"><span class="icon-slot" data-icon="globe" aria-hidden="true"></span>Language &amp; region</button>
             <button class="preferences-nav-item" type="button" data-settings-section="search"><span class="icon-slot" data-icon="search" aria-hidden="true"></span>Search engine</button>
             <button class="preferences-nav-item" type="button" data-settings-section="tabs"><span class="icon-slot" data-icon="list" aria-hidden="true"></span>Tabs</button>
             <button class="preferences-nav-item" type="button" data-settings-section="privacy"><span class="icon-slot" data-icon="shield-check" aria-hidden="true"></span>Privacy &amp; data</button>
@@ -175,6 +177,22 @@
                     <input class="preferences-switch" id="show-bookmarks-setting" type="checkbox" />
                   </label>
                 </div>
+              </section>
+
+              <section class="preferences-section" data-settings-panel="language" hidden>
+                <div class="preferences-section-intro"><h1>Language &amp; region</h1><p>Choose the language used in NovaBrowser's menus and settings.</p></div>
+                <div class="preferences-group">
+                  <h2>Display language</h2>
+                  <label class="preferences-row" for="language-setting">
+                    <span class="preferences-row-text"><strong>Language</strong><small>Changes appear immediately. Save to keep your choice after restarting.</small></span>
+                    <select id="language-setting" aria-label="Display language">
+                      <option value="system">Follow system language</option>
+                      <option value="vi">Tiếng Việt</option>
+                      <option value="en">English</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="preferences-section-note"><span class="icon-slot" data-icon="info" aria-hidden="true"></span>This changes the browser interface, not the language of websites. Automatic webpage translation is not supported yet.</div>
               </section>
 
               <section class="preferences-section" data-settings-panel="search" hidden>

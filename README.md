@@ -37,8 +37,10 @@ The original engine requires significant disk space to compile V8.
   inactive tabs only when selected.
 - Local bookmarks and browsing history with quick access from the toolbar.
 - Full browser Settings workspace (`nova://settings`): searchable sections,
-  startup, appearance, search provider, tabs, privacy, and about; working
-  Home button and bookmarks-bar toggles, plus separate data-clearing controls.
+  startup, appearance, language, search provider, tabs, privacy, and about;
+  working Home button, bookmarks bar, and data-clearing controls.
+- Offline English/Vietnamese interface localization with system-language
+  default, instant preview and persisted preference.
 - Integration with the existing Rust DOM, networking and V8 JavaScript runtime.
 - Basic page screenshots, mouse clicks, scrolling and text entry.
 - Viewport updates on window resize, with bounded frame dimensions.

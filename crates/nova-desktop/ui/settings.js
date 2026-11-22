@@ -3,6 +3,7 @@
   "use strict";
 
   function create({ invoke, onOpen, onClose, onRoute, onSaved }) {
+    const i18n = window.NovaI18n;
     const page = document.getElementById("settings-page");
     const form = document.getElementById("settings-form");
     const themeChoices = [...page.querySelectorAll('input[name="appearance"]')];
@@ -13,6 +14,7 @@
     const saveHistory = document.getElementById("save-history-setting");
     const showHome = document.getElementById("show-home-setting");
     const showBookmarks = document.getElementById("show-bookmarks-setting");
+    const language = document.getElementById("language-setting");
     const error = document.getElementById("settings-error");
     const feedback = document.getElementById("settings-feedback");
     const saveButton = document.getElementById("save-settings");
@@ -28,8 +30,9 @@
     const sections = [...page.querySelectorAll("[data-settings-panel]")];
     const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
     const labels = {
-      general: "General", appearance: "Appearance", search: "Search engine",
-      tabs: "Tabs", privacy: "Privacy & data", about: "About NovaBrowser",
+      general: "General", appearance: "Appearance", language: "Language & region",
+      search: "Search engine", tabs: "Tabs",
+      privacy: "Privacy & data", about: "About NovaBrowser",
     };
     let persisted = null;
     let pending = false;
@@ -62,6 +65,7 @@
         saveHistory: saveHistory.checked,
         showHomeButton: showHome.checked,
         showBookmarksBar: showBookmarks.checked,
+        language: language.value,
       };
     }
 
@@ -77,7 +81,7 @@
 
     function updateSearchExample() {
       const names = { google: "Google Search", bing: "Bing Search", duckduckgo: "DuckDuckGo" };
-      document.getElementById("settings-search-example").textContent = names[searchEngine.value] || "Google Search";
+      document.getElementById("settings-search-example").textContent = i18n.t(names[searchEngine.value] || "Google Search");
     }
 
     function fill(settings) {
@@ -91,6 +95,8 @@
       saveHistory.checked = settings.saveHistory !== false;
       showHome.checked = settings.showHomeButton === true;
       showBookmarks.checked = settings.showBookmarksBar === true;
+      language.value = ["system", "en", "vi"].includes(settings.language) ? settings.language : "system";
+      i18n.setLanguage(language.value);
       homepage.removeAttribute("aria-invalid");
       error.hidden = true;
       error.textContent = "";
@@ -114,7 +120,7 @@
         else button.removeAttribute("aria-current");
       }
       for (const panel of sections) panel.hidden = panel.dataset.settingsPanel !== section;
-      sectionLabel.textContent = labels[section];
+      sectionLabel.textContent = i18n.t(labels[section]);
       content.scrollTop = 0;
       if (!page.hidden) onRoute(section);
     }
@@ -126,7 +132,7 @@
       for (const button of navigation) {
         const name = button.dataset.settingsSection;
         const panel = sections.find((candidate) => candidate.dataset.settingsPanel === name);
-        const haystack = (labels[name] + " " + (panel?.textContent || "")).toLocaleLowerCase();
+        const haystack = (labels[name] + " " + i18n.t(labels[name]) + " " + (panel?.textContent || "")).toLocaleLowerCase();
         const match = !query || haystack.includes(query);
         button.hidden = !match;
         if (match) {
@@ -135,8 +141,8 @@
         }
       }
       searchSummary.textContent = !query ? "" : matches
-        ? matches === 1 ? "1 matching section" : matches + " matching sections"
-        : "No matching settings";
+        ? matches === 1 ? i18n.t("1 matching section") : i18n.t("{count} matching sections", { count: matches })
+        : i18n.t("No matching settings");
       if (query && first && navigation.find((button) => button.dataset.settingsSection === section)?.hidden) {
         selectSection(first);
       }
@@ -160,7 +166,10 @@
 
     function close() {
       if (page.hidden || pending) return;
-      if (persisted) applyTheme(persisted.theme);
+      if (persisted) {
+        applyTheme(persisted.theme);
+        i18n.setLanguage(persisted.language || "system");
+      }
       page.hidden = true;
       feedback.textContent = "";
       error.hidden = true;
@@ -197,7 +206,7 @@
     resetButton.addEventListener("click", () => {
       if (!persisted || pending) return;
       fill(persisted);
-      feedback.textContent = "Changes discarded.";
+      feedback.textContent = i18n.t("Changes discarded.");
     });
 
     function onChange() {
@@ -219,14 +228,22 @@
       onChange();
     });
     searchEngine.addEventListener("change", updateSearchExample);
+    language.addEventListener("change", () => {
+      i18n.setLanguage(language.value);
+      sectionLabel.textContent = i18n.t(labels[section]);
+      updateSearchExample();
+      filterNavigation();
+      onChange();
+    });
+
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (pending || !persisted || !isDirty()) return;
       const next = readState();
-      if (!next.homepage) { showError("Enter a homepage URL or search query.", true); return; }
+      if (!next.homepage) { showError(i18n.t("Enter a homepage URL or search query."), true); return; }
       if (new TextEncoder().encode(next.homepage).length > 4096) {
-        showError("Homepage is too long (maximum 4,096 bytes).", true);
+        showError(i18n.t("Homepage is too long (maximum 4,096 bytes)."), true);
         return;
       }
       pending = true;
@@ -238,10 +255,11 @@
         persisted = { ...saved };
         fill(persisted);
         onSaved(persisted);
-        feedback.textContent = "Changes saved.";
+        feedback.textContent = i18n.t("Changes saved.");
       } catch (cause) {
         const message = String(cause);
-        showError(message, /home|address|url|http/i.test(message));
+        showError(i18n.t("Unable to save settings: {error}", { error: message }),
+          /home|address|url|http/i.test(message));
       } finally {
         pending = false;
         updateSaveState();
@@ -251,17 +269,20 @@
     async function clearItems(kind) {
       if (pending || page.hidden) return;
       const isBookmarks = kind === "bookmarks";
-      const label = isBookmarks ? "bookmarks" : "browsing history";
-      if (!window.confirm("Permanently clear all " + label + " from this browser?")) return;
+      const label = isBookmarks ? i18n.t("bookmarks") : i18n.t("browsing history");
+      const confirmText = isBookmarks
+        ? i18n.t("Permanently clear all bookmarks from this browser?")
+        : i18n.t("Permanently clear all browsing history from this browser?");
+      if (!window.confirm(confirmText)) return;
       const button = isBookmarks ? clearBookmarks : clearHistory;
       button.disabled = true;
       historyMessage.textContent = "";
       try {
         await invoke(isBookmarks ? "browser_clear_bookmarks" : "browser_clear_history");
-        historyMessage.textContent = (isBookmarks ? "Bookmarks" : "Browsing history") + " cleared.";
+        historyMessage.textContent = i18n.t(isBookmarks ? "Bookmarks cleared." : "Browsing history cleared.");
         onSaved(persisted);
       } catch (cause) {
-        historyMessage.textContent = "Unable to clear " + label + ": " + String(cause);
+        historyMessage.textContent = i18n.t("Unable to clear {item}: {error}", { item: label, error: String(cause) });
       } finally {
         button.disabled = false;
       }
@@ -274,7 +295,10 @@
       open, close, isOpen: () => !page.hidden,
       applySaved(settings) {
         persisted = { ...settings };
-        if (page.hidden) applyTheme(settings.theme || "light");
+        if (page.hidden) {
+          applyTheme(settings.theme || "light");
+          i18n.setLanguage(settings.language || "system");
+        }
         onSaved(persisted);
       },
     });

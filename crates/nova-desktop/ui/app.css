@@ -990,3 +990,13 @@ button { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .preferences-page *, .preferences-switch::after { transition: none !important; }
 }
+
+
+/* Language names need breathing room without changing the compact layout. */
+.preferences-nav-item { height: auto; line-height: 1.4; padding-top: 8px; padding-bottom: 8px; }
+.preferences-sidebar { flex-basis: 241px; }
+.preferences-row select#language-setting { min-width: 170px; }
+:root[data-theme="dark"] .preferences-search-box input::placeholder { color: #aeb6c4; }
+@media (max-width: 1000px) {
+  .preferences-sidebar { flex-basis: 211px; }
+}

@@ -646,6 +646,7 @@ fn browser_save_settings(
     save_history: bool,
     show_home_button: bool,
     show_bookmarks_bar: bool,
+    language: String,
 ) -> Result<BrowserSettings, String> {
     if !matches!(theme.as_str(), "light" | "dark" | "system") {
         return Err("Choose a valid appearance".to_string());
@@ -659,6 +660,9 @@ fn browser_save_settings(
     if !matches!(search_engine.as_str(), "google" | "bing" | "duckduckgo") {
         return Err("Choose a valid search engine".to_string());
     }
+    if !matches!(language.as_str(), "system" | "en" | "vi") {
+        return Err("Choose a supported interface language".to_string());
+    }
     if homepage.len() > 4096 {
         return Err("The homepage must be 4,096 bytes or fewer".to_string());
     }
@@ -666,7 +670,7 @@ fn browser_save_settings(
         .map_err(|error| error.to_string())?;
     let settings = BrowserSettings {
         theme, homepage, startup, new_tab, search_engine, save_history,
-        show_home_button, show_bookmarks_bar,
+        show_home_button, show_bookmarks_bar, language,
     };
     state.browser_data.save_settings(settings.clone())?;
     Ok(settings)
