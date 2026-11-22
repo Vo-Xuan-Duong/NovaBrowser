@@ -51,6 +51,8 @@ enum Command {
     ServoHistory(String, bool, bool),
     #[cfg(all(feature = "servo-embed", target_os = "windows"))]
     ServoError(String, String),
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    ServoFocusAddress,
     Shutdown,
 }
 
@@ -788,6 +790,15 @@ fn engine_thread(
                 if tab_id == active_id {
                     report(&app, None, format!("Navigation error: Servo: {error}"), false);
                 }
+            }
+            #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+            Ok(Command::ServoFocusAddress) => {
+                // Ctrl+L from the native child HWND needs to return focus to
+                // NovaBrowser's trusted WebView2 address bar.
+                if let Some(chrome) = app.get_webview("main") {
+                    let _ = chrome.set_focus();
+                }
+                let _ = app.emit("browser-focus-address", ());
             }
             Ok(Command::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                 persist_session(&browser_data, &tabs, &active_id);

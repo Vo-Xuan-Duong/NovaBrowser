@@ -639,6 +639,10 @@
         statusBubble.classList.toggle("is-visible", payload.showStatus);
         loadingIndicator.classList.toggle("is-loading", payload.loading);
       }),
+      listen("browser-focus-address", () => {
+        address.focus();
+        address.select();
+      }),
       listen("browser-history", ({ payload }) => {
         document.getElementById("back").disabled = !payload.canBack;
         document.getElementById("forward").disabled = !payload.canForward;

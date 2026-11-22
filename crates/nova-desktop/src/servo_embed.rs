@@ -24,6 +24,7 @@ use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton as WinitButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::platform::windows::EventLoopBuilderExtWindows;
+use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey};
 use winit::raw_window_handle::{
     HasDisplayHandle, HasWindowHandle, RawWindowHandle, Win32WindowHandle,
 };
@@ -155,6 +156,7 @@ struct State {
     active: Option<String>,
     visible: bool,
     cursor: DevicePoint,
+    modifiers: ModifiersState,
 }
 
 impl State {
@@ -309,6 +311,7 @@ impl ApplicationHandler<Event> for Embedder {
             window, context, engine,
             pages: HashMap::new(), active: None, visible: false,
             cursor: DevicePoint::new(0.0, 0.0),
+            modifiers: ModifiersState::empty(),
         });
         if let Some(tx) = self.ready.take() {
             let _ = tx.send(Ok(ServoBridge { proxy: self.proxy.clone() }));
@@ -379,7 +382,46 @@ impl ApplicationHandler<Event> for Embedder {
                     state.cursor.into(), Modifiers::default(),
                 )));
             }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                state.modifiers = modifiers.state();
+            }
             WindowEvent::KeyboardInput { event, .. } => {
+                if event.state == ElementState::Pressed {
+                    let control = state.modifiers.control_key();
+                    let alt = state.modifiers.alt_key();
+                    let key_text = event.logical_key.to_text().unwrap_or("").to_lowercase();
+                    if control && key_text == "l" {
+                        let _ = self.sender.send(Command::ServoFocusAddress);
+                        return;
+                    }
+                    if control && key_text == "t" {
+                        let command = if state.modifiers.shift_key() {
+                            Command::ReopenTab
+                        } else {
+                            Command::NewTab
+                        };
+                        let _ = self.sender.send(command);
+                        return;
+                    }
+                    if control && key_text == "w" {
+                        if let Some(tab) = state.active.as_ref() {
+                            let _ = self.sender.send(Command::CloseTab(tab.clone()));
+                        }
+                        return;
+                    }
+                    if control && key_text == "r" {
+                        let _ = self.sender.send(Command::Reload);
+                        return;
+                    }
+                    if alt && matches!(event.logical_key, WinitKey::Named(NamedKey::ArrowLeft)) {
+                        let _ = self.sender.send(Command::Back);
+                        return;
+                    }
+                    if alt && matches!(event.logical_key, WinitKey::Named(NamedKey::ArrowRight)) {
+                        let _ = self.sender.send(Command::Forward);
+                        return;
+                    }
+                }
                 let key: Key = event.logical_key.to_string().parse().unwrap_or_default();
                 let pressed = if event.state == ElementState::Pressed {
                     KeyState::Down
