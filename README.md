@@ -33,6 +33,9 @@ The original engine requires significant disk space to compile V8.
 - Interactive offline Home/new-tab page at `nova://home` with search, real
   bookmarks, recent visits, public quick-link suggestions and native settings
   access; selectable as the homepage or new-tab destination.
+- Explicit Google anti-bot/search-challenge handling: a localized native notice,
+  user-initiated Bing/DuckDuckGo alternatives, retry and view-original-page
+  actions. The browser cannot guarantee access when Google refuses requests.
 - Tab keyboard navigation and reopen-closed-tab (Ctrl+Shift+T).
 - Consistent Lucide SVG icons for the browser chrome, hosted locally without
   icon fonts or runtime CDN dependencies.

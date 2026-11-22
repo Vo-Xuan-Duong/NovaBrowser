@@ -168,12 +168,22 @@
   "Window controls": "Điều khiển cửa sổ",
   "Your bookmarks": "Dấu trang của bạn",
   "YOUR LIBRARY": "THƯ VIỆN CỦA BẠN",
-  "Your saved pages will appear here": "Trang đã lưu sẽ xuất hiện ở đây"
+  "Your saved pages will appear here": "Trang đã lưu sẽ xuất hiện ở đây",
+  "Google search needs verification": "Tìm kiếm Google yêu cầu xác minh",
+  "Google returned an unusual-traffic page for this search. NovaBrowser cannot automatically complete Google's verification. You can view Google's response or choose another search provider.": "Google đã hiển thị trang cảnh báo lưu lượng bất thường cho tìm kiếm này. NovaBrowser không thể tự động thực hiện bước xác minh của Google. Bạn có thể xem phản hồi của Google hoặc chọn công cụ tìm kiếm khác.",
+  "Your search": "Từ khóa tìm kiếm",
+  "Search with Bing": "Tìm kiếm bằng Bing",
+  "Search with DuckDuckGo": "Tìm kiếm bằng DuckDuckGo",
+  "Retry Google": "Thử lại Google",
+  "View Google's response": "Xem phản hồi của Google",
+  "Your default search engine will not change. A query is sent to another provider only when you choose it.": "Công cụ tìm kiếm mặc định sẽ không thay đổi. Từ khóa chỉ được gửi sang nhà cung cấp khác khi bạn chủ động chọn.",
+  "Google search unavailable": "Không thể tìm kiếm Google",
+  "Google requested traffic verification": "Google yêu cầu xác minh lưu lượng"
 });
   const SOURCES = new WeakMap();
   const ATTR_SOURCES = new WeakMap();
   const SUBSCRIBERS = new Set();
-  const OMIT = "#tab-list, #library-list, #bookmarks-bar, #page-area, #status-bubble, #home-shortcuts-list, #home-recent-list";
+  const OMIT = "#tab-list, #library-list, #bookmarks-bar, #status-bubble, #home-shortcuts-list, #home-recent-list";
   let preference = "system";
   let active = "en";
 

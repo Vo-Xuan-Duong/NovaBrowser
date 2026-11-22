@@ -312,3 +312,43 @@ filtering and duplicate paths; the desktop unit tests check font selection.
 The site-content renderer still relies on CPU PNG screenshots and synthetic
 DOM input. This fallback work does not resolve native IME, GPU
 compositing, security isolation, or every possible Unicode font issue.
+
+
+## Google search challenge handling
+
+When the active search provider is Google, Obscura sends the normal search
+URL `https://www.google.com/search?q=...`. Google can refuse that request
+and redirect to `https://www.google.com/sorry/index` with an unusual-traffic
+warning. This is a **server-side anti-bot restriction**, not evidence that
+the address bar encoded the query incorrectly. NovaBrowser does not spoof
+Chrome fingerprints, defeat verification or automatically rotate identities.
+
+To handle it clearly:
+
+- `navigation::blocked_google_search_query` recognizes only a genuine
+  HTTPS Google search followed by Google's own `/sorry` path. It
+  validates both origins, extracts and size-checks the search query, and
+  rejects lookalike hostnames or off-domain `continue` URLs.
+- The engine emits `browser-search-blocked` for the active tab and shows a
+  native explanatory screen instead of painting a confusing empty Google
+  challenge image. Its state is per-tab and restored when switching tabs.
+- **Retry Google** retries the same query. **View Google's response** shows
+  the unmodified page from Google so the user can decide how to proceed.
+- **Search with Bing** / **Search with DuckDuckGo** sends that query to the
+  selected service **only after a click**. The default search-engine setting
+  is not changed and no fallback is triggered automatically.
+- URL/search navigation, provider selection, and blocked-redirect recognition
+  are covered by focused Rust unit tests. The screen is localized in
+  English/Vietnamese.
+
+The Google provider remains selectable, but Google may still block searches
+from this experimental engine. Official search services can impose their
+own traffic restrictions; the application does not promise to bypass them.
+The notice does not request or transmit CAPTCHA tokens, passwords or account
+data. No additional web-search API credentials or services are added.
+
+Test locally with `cargo test -p nova-desktop` and
+`cargo check -p nova-desktop`. Search a Unicode query in Google and verify
+a normal result is rendered unchanged when Google accepts it. If Google
+redirects to `/sorry`, verify the notice, manual Bing/DuckDuckGo choices,
+Retry Google, View Google's response, Back, Forward, and tab switching.
