@@ -1,11 +1,13 @@
 # AGENTS.md
 
-> NovaBrowser selects **Servo only** for website rendering. Official app:
-> `apps/nova-browser/` (run with `run-nova.cmd` or `cargo nova`).
-> Historical `crates/nova-desktop/` and `crates/obscura-*/` are retained
-> for migration/reference, not parallel development. See
-> `docs/ENGINE_DECISION.md`. Do not run GitHub Actions.
-
+> NovaBrowser is the product. The canonical executable is
+> `crates/nova-desktop/` and the full existing UI is in its `ui/` directory.
+> Servo provides a candidate embeddable website engine, **not a new browser
+> app**. The code in `tools/servo-embed-harness/` is an integration test
+> harness only. Reuse relevant Obscura and Nova modules instead of duplicating
+> working browser features. Browser-owned engine interfaces start at
+> `crates/nova-desktop/src/engine_api.rs`. Read `docs/ENGINE_DECISION.md`.
+> Do not run GitHub Actions.
 
 Guidance for AI coding agents and contributors working in the Obscura repo.
 This is the non-obvious stuff you can't infer from the code; read it before

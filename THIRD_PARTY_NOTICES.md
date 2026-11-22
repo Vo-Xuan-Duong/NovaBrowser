@@ -17,8 +17,9 @@ independence on GitHub does not alter the origin or license of code.
 
 ## Desktop UI: Tauri
 
-The selected NovaBrowser app uses Tauri 2 with Servo; the retained legacy
-Obscura shell uses Tauri 2 and WebView2 (Windows).
+The current NovaBrowser shell uses Tauri 2 with WebView2 (Windows) for the
+browser interface and Obscura for experimental page rendering. Servo is an
+embedding candidate; the separate Servo harness is not a product distribution.
 Review each runtime dependency's license before redistribution.
 
 ## Desktop icons: Lucide
@@ -34,11 +35,11 @@ https://github.com/lucide-icons/lucide
 These icons are self-hosted. NovaBrowser's chrome does not request SVG assets
 from external servers when it starts.
 
-## Selected Servo runtime
+## Servo integration research and test harness
 
-The `apps/nova-browser` application depends on the Servo web
+The `tools/servo-embed-harness` test program depends on the Servo web
 engine (https://servo.org/, MPL-2.0) and the third-party
 `tauri-runtime-servo` integration (https://github.com/copse-dev/tauri-runtime-servo,
-Apache-2.0 OR MIT). These sources are fetched through Cargo when the application
+Apache-2.0 OR MIT). These sources are fetched through Cargo when the test harness
 is built and are **not copied** into the NovaBrowser repository. Review their
 complete transitive licensing requirements before distributing binaries.
