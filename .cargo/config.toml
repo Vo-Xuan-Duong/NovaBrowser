@@ -2,7 +2,7 @@
 RUST_TEST_THREADS = "1"
 
 [alias]
-# Launch the single selected Servo-based browser.
-nova = "run --manifest-path apps/nova-browser/Cargo.toml --release"
+# Launch the actual NovaBrowser desktop shell (Servo integration still ongoing).
+nova = "run -p nova-desktop --release"
 # Local runtime iteration only. Benchmark with the normal non-incremental build.
 test-js = "nextest run --release --features render -p obscura-js --lib --config profile.release.package.obscura-js.incremental=true"

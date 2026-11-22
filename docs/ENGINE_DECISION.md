@@ -1,57 +1,86 @@
-# ADR-001: Servo as the sole NovaBrowser website engine
+# ADR-001 — NovaBrowser owns the product; third-party engines are components
 
-Status: Accepted (2026-11-22).
+Status: **Accepted and corrected, 2026-11-22**.
 
-## Decision
+## Product decision
 
-Develop **one NovaBrowser application** using Servo for website layout,
-scripting, input and rendering. Do not maintain Obscura as an active fallback
-or develop two desktop browsers. Retain Obscura code only to selectively migrate
-features already implemented in the old browser shell.
+NovaBrowser is the **one** browser application. Its UI, data, preferences,
+tab/session behavior and identity are authoritative. Do not replace it with
+a Servo demonstration shell or reimplement working NovaBrowser features
+without a concrete need.
 
-Servo's embedder WebView API is architecturally suitable for a native Rust
-browser. The previous Obscura desktop displays CPU-painted PNG screenshots
-of pages and synthesizes user input, an unsuitable long-term basis for a
-general interactive browser. Windows WebView2 provides mature web compatibility
-and multi-view integration, but retaining it conflicts with the preference
-for an independent rendering engine.
+The earlier decision to promote a `tauri-runtime-servo` demonstration as
+the official app was **wrong**. Revert that promotion. The canonical shell
+is `crates/nova-desktop/`; `run-nova.cmd` and `cargo nova` must launch it.
 
-**No comparative RAM benchmark has been performed.** Servo may or may not
-use less total memory; do not claim savings without measuring the full process
-tree on the same Windows hardware and identical workloads.
+## Component selection
 
-## Implementation
+Servo is the primary **candidate for native website rendering**, selected
+for its embeddable WebView API and the intent to avoid screenshot-based
+rendering. It can supply website HTML/CSS, JavaScript, layout, painting,
+WebView control and native input integration. This is **not** an instruction
+to adopt servoshell, its demo UI, or a completely separate product.
 
-- Official runtime: `apps/nova-browser/`.
-- Official launch: `run-nova.cmd`, `cargo nova`.
-- Historical reference source: `crates/nova-desktop/` and `crates/obscura-*/`.
-- Separate Cargo workspace: isolate incompatible engine dependency graphs,
-  **not** create another browser product.
-- Servo 0.5.0 is pinned to the adapter's tested dependency graph. Servo 0.8.0
-  was available on 2026-11-22, but cannot be substituted without updating
-  the `tauri-runtime-servo` adapter.
+Re-use well-fitting features from existing Obscura/NovaBrowser modules,
+including navigation, local storage, session handling, and UI work.
+Do **not** run both Obscura's and Servo's complete page rendering/JavaScript
+pipelines for the same website. Auxiliary components should earn their
+place via compatibility, correctness and memory benchmarks.
 
-## Remaining integration milestones
+The historical Obscura page renderer remains in the current executable
+**temporarily** while the Servo adapter is implemented; no unsupported
+claim of completed engine migration should be made.
 
-1. Support a persistent local chrome and several independently managed Servo
-   website views. The current Tauri adapter does not support several Servo
-   webviews in one native window.
-2. Bring existing UI, settings, tab management, history, bookmarks, English/
-   Vietnamese localization, and session persistence across without exposing
-   Tauri IPC to untrusted website origins.
-3. Verify Google, UTF-8/IME, JavaScript/forms, download flows, permissions and
-   URL security on Windows.
-4. Benchmark complete application-process trees for idle, static, and
-   script-heavy pages, using equal conditions and stable settle policies.
-5. Implement and test profile migration before removing historical code.
+## Required architecture
 
-Until these steps are complete, the selected Servo executable is a technical
-preview, not a feature-complete replacement for the former app.
+```text
+NovaBrowser (existing UI: tabs, omnibox, Home, Settings, i18n)
+  | browser-owned commands/events; persisted browser profile
+Nova browser core / engine_api.rs
+  | trusted event-loop + view lifecycle + native input + rendering bounds
+Servo WebView embedder [to be integrated into this window]
+  | HTML/CSS/JS/layout/rendering of external websites
+```
 
-Sources:
-- https://servo.org/
+- Each website has an engine WebView handle owned by its tab.
+- Keep app chrome persistent, separate from untrusted website documents.
+- Do not give remote websites Tauri IPC capability.
+- Retain browsing history/bookmarks/Settings/session data in NovaBrowser.
+- Integrate real pointer, keyboard and IME input; avoid synthetic JavaScript
+  events as the final input path.
+- Background tabs should be able to hide/suspend/discard without deleting
+  persisted browser state.
+- Adapt to the same native window; never iframe a remote webpage to fake tabs.
+
+## Evidence and blockers
+
+Servo 0.8.0 API documents `ServoBuilder`, `WebViewBuilder`, WebView paint,
+`RenderingContext` and the `EventLoopWaker` contract. The currently
+pinned `tauri-runtime-servo` 0.1.0 harness embeds Servo 0.5.0 and does
+**not** support multiple Servo webviews in one window. Therefore the
+harness stays in `tools/servo-embed-harness/`, not under the product app.
+Investigate a direct Servo embedder or an adapter that supports independent
+site WebViews and persistent chrome before selecting the final implementation.
+
+No measured Windows RAM comparison has been performed; no claim that Servo
+uses less RAM than WebView2/Obscura is justified yet.
+
+## Completion criteria
+
+1. One NovaBrowser binary launches the existing browser chrome.
+2. Servo paints external content in that window without a screenshot
+   bridge or a replacement Home/Settings UI.
+3. Multiple pages support native input, history, switching, resizing, focus,
+   isolation and controlled background-resource lifecycles.
+4. Existing bookmark/history/preferences/session data survive migration.
+5. Windows-local tests and process-tree memory benchmarks are recorded.
+6. Only after validation retire unused legacy full-engine code and review
+   licensing/attribution.
+
+References:
 - https://doc.servo.org/servo/
+- https://doc.servo.org/servo/struct.WebView.html
+- https://github.com/servo/servo/blob/main/components/servo/examples/winit_minimal.rs
 - https://github.com/copse-dev/tauri-runtime-servo
-- https://docs.rs/crate/servo/0.8.0
 
-No GitHub Actions or hosted test workflows are used.
+No GitHub Actions, automated builds or hosted workflows.

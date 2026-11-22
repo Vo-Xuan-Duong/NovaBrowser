@@ -1,5 +1,5 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-cargo run --manifest-path "apps\nova-browser\Cargo.toml" --release %*
+cargo run -p nova-desktop --release %*
 exit /b %ERRORLEVEL%
