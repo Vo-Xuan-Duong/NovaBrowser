@@ -1,3 +1,6 @@
+// Engine-agnostic contract for the Servo integration; not yet wired to the renderer.
+#[allow(dead_code)]
+mod engine_api;
 mod font_fallback;
 mod input;
 mod navigation;
