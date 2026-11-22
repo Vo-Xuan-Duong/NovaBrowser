@@ -372,6 +372,12 @@ fn engine_thread(
         }
     };
 
+    // Synchronous V8/DOM callbacks (click, scroll, input, evaluation and page
+    // teardown) can start Tokio-backed fetches outside runtime.block_on().
+    // Enter the runtime for the entire engine-thread lifetime so async ops
+    // always find a reactor. block_on below still drives their progress.
+    let _engine_runtime_guard = runtime.enter();
+
     // All page isolates stay on this thread. Tabs share cookies and the HTTP
     // client through BrowserContext while keeping their DOM and JS realm apart.
     let context = Arc::new(BrowserContext::new("nova-default".to_owned()));

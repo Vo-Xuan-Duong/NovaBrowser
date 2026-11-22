@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NovaBrowser Tokio reactor input regression</title>
+  <style>
+    body { max-width: 700px; margin: 36px auto; padding: 20px; font: 20px Arial,sans-serif; }
+    button, input { box-sizing: border-box; display: block; width: 100%; font: inherit; padding: 18px; margin: 16px 0; }
+    button { cursor: pointer; }
+    p { min-height: 2rem; }
+  </style>
+</head>
+<body>
+  <h1>Tokio reactor regression</h1>
+  <p>Serve this file on localhost, allow private networking, then trigger both JavaScript fetch paths.</p>
+  <button id="fetch-click" type="button">Fetch on click</button>
+  <p id="click-result" role="status">Not tested</p>
+  <label for="fetch-input">Fetch on input</label>
+  <input id="fetch-input" type="text" autocomplete="off" placeholder="Type one letter">
+  <p id="input-result" role="status">Not tested</p>
+  <script>
+    function checkFetch(resultId, mode) {
+      var result = document.getElementById(resultId);
+      result.textContent = "Fetching...";
+      fetch("/tokio-reactor-input.html?from=" + mode, { cache: "no-store" })
+        .then(function (response) {
+          result.textContent = response.ok
+            ? "Fetch OK (HTTP " + response.status + ")"
+            : "Fetch failed (HTTP " + response.status + ")";
+        })
+        .catch(function (error) { result.textContent = "Fetch error: " + String(error); });
+    }
+    document.getElementById("fetch-click").addEventListener("click", function () {
+      checkFetch("click-result", "click");
+    });
+    document.getElementById("fetch-input").addEventListener("input", function () {
+      checkFetch("input-result", "input");
+    });
+  </script>
+</body>
+</html>

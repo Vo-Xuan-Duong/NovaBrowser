@@ -97,6 +97,46 @@ On Windows, Tauri uses Microsoft Edge WebView2 for the interface. WebView2 is
 included with supported Windows versions or can be installed separately. The
 Obscura engine still requires the dependencies needed to build V8.
 
+## Tokio reactor regression (legacy Obscura desktop)
+
+The engine thread owns a `tokio::runtime::Runtime`, but user input calls
+`Page::evaluate` synchronously. JavaScript event listeners can immediately
+start an asynchronous fetch/XHR operation while `runtime.block_on` is not
+active. Without an entered Tokio runtime, the `op_fetch_url` FFI callback can
+panic with `there is no reactor running`, aborting the whole process.
+
+Keep the `runtime.enter()` guard alive on the engine thread, starting **before**
+creating the browser context or pages and ending **after** page teardown. The
+entered context makes the Tokio reactor available to synchronous callbacks;
+`runtime.block_on` is still necessary to *drive* spawned tasks. Do not move
+these callbacks to an unrelated thread or drop the guard while pages exist.
+
+### Manual Windows reproduction check
+
+Run a temporary local HTTP server from the repo root:
+
+```powershell
+python -m http.server 8765 --directory crates/nova-desktop/tests/fixtures
+```
+
+In a second terminal:
+
+```powershell
+$env:OBSCURA_ALLOW_PRIVATE_NETWORK = "1"
+$env:RUST_BACKTRACE = "1"
+cargo run -p nova-desktop --release
+```
+
+Visit `http://127.0.0.1:8765/tokio-reactor-input.html`. Click the large
+**Fetch on click** button and type into **Fetch on input**. Both actions should
+change their respective result text to **Fetch OK (HTTP 200)**, and the
+`nova-engine` process should remain alive. Repeat after switching tabs,
+reloading, and navigating Back/Forward. If the page is refused, check the
+private-network opt-in and local server before investigating the runtime.
+The fixture does not access an external site and does not measure browser
+compatibility, memory usage, or Servo behavior. Run actual Windows cargo
+check/tests as well; CI is intentionally disabled for this project.
+
 ## Session restore and startup synchronization
 
 The frontend registers Tauri event listeners before calling
