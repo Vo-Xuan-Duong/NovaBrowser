@@ -12,7 +12,7 @@ obscura-browser = { workspace = true, features = ["render"] }
 tokio = { workspace = true }
 serde_json = { workspace = true }
 url = { workspace = true }
-slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-femtovg", "image-decoders"] }
+slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-femtovg", "image-default-formats"] }
 
 [build-dependencies]
 slint-build = { version = "=1.18.1", default-features = false, features = ["compat-1-18"] }
