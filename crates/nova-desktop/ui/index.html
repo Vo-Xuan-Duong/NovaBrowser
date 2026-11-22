@@ -42,6 +42,9 @@
           <button class="toolbar-button" id="reload" aria-label="Reload" title="Reload">
           <span class="icon-slot" data-icon="rotate-cw" aria-hidden="true"></span>
         </button>
+          <button class="toolbar-button" id="home-action" aria-label="Go to homepage" title="Home" hidden>
+            <span class="icon-slot" data-icon="house" aria-hidden="true"></span>
+          </button>
         </div>
 
         <form class="omnibox" id="address-form" autocomplete="off">
@@ -61,6 +64,8 @@
           <span class="icon-slot" data-icon="settings-2" aria-hidden="true"></span>
         </button>
       </nav>
+
+      <div class="bookmarks-bar" id="bookmarks-bar" aria-label="Bookmarks bar" hidden></div>
 
       <div class="loading-track"><div class="loading-indicator" id="loading-indicator"></div></div>
 
@@ -90,102 +95,166 @@
         </div>
       </aside>
 
-      <!-- First-class in-app settings route (nova://settings).
-           Browser web pages are still rendered by Obscura, not WebView2. -->
-      <section class="preferences-page" id="settings-page" aria-label="NovaBrowser settings" hidden>
-        <aside class="preferences-sidebar" aria-label="Settings sections">
+      <section class="preferences-page" id="settings-page" aria-label="Browser settings" hidden>
+        <aside class="preferences-sidebar" aria-label="Settings navigation">
           <div class="preferences-identity">
-            <span class="preferences-brand">N</span>
-            <div><strong>NovaBrowser</strong><small>Browser settings</small></div>
+            <span class="preferences-brand" aria-hidden="true">N</span>
+            <div><strong>NovaBrowser</strong><small>Settings</small></div>
           </div>
-          <div class="preferences-nav-caption">PREFERENCES</div>
-          <nav class="preferences-navigation" id="settings-navigation">
-            <button type="button" class="preferences-nav-item is-active" data-settings-section="general" aria-current="page"><span class="icon-slot" data-icon="house" aria-hidden="true"></span>General</button>
-            <button type="button" class="preferences-nav-item" data-settings-section="appearance"><span class="icon-slot" data-icon="palette" aria-hidden="true"></span>Appearance</button>
-            <button type="button" class="preferences-nav-item" data-settings-section="search"><span class="icon-slot" data-icon="search" aria-hidden="true"></span>Search engine</button>
-            <button type="button" class="preferences-nav-item" data-settings-section="tabs"><span class="icon-slot" data-icon="list" aria-hidden="true"></span>Tabs</button>
-            <button type="button" class="preferences-nav-item" data-settings-section="privacy"><span class="icon-slot" data-icon="shield-check" aria-hidden="true"></span>Privacy &amp; data</button>
+          <label class="preferences-search-box">
+            <span class="icon-slot" data-icon="search" aria-hidden="true"></span>
+            <input id="settings-search" type="search" placeholder="Search settings" autocomplete="off" aria-label="Search settings sections" />
+          </label>
+          <p class="preferences-search-summary" id="settings-search-summary" aria-live="polite"></p>
+          <nav class="preferences-navigation" id="settings-navigation" aria-label="Settings sections">
+            <button class="preferences-nav-item is-active" type="button" data-settings-section="general" aria-current="page"><span class="icon-slot" data-icon="house" aria-hidden="true"></span>General</button>
+            <button class="preferences-nav-item" type="button" data-settings-section="appearance"><span class="icon-slot" data-icon="palette" aria-hidden="true"></span>Appearance</button>
+            <button class="preferences-nav-item" type="button" data-settings-section="search"><span class="icon-slot" data-icon="search" aria-hidden="true"></span>Search engine</button>
+            <button class="preferences-nav-item" type="button" data-settings-section="tabs"><span class="icon-slot" data-icon="list" aria-hidden="true"></span>Tabs</button>
+            <button class="preferences-nav-item" type="button" data-settings-section="privacy"><span class="icon-slot" data-icon="shield-check" aria-hidden="true"></span>Privacy &amp; data</button>
+            <div class="preferences-sidebar-divider" aria-hidden="true"></div>
+            <button class="preferences-nav-item" type="button" data-settings-section="about"><span class="icon-slot" data-icon="info" aria-hidden="true"></span>About NovaBrowser</button>
           </nav>
-          <div class="preferences-nav-caption preferences-nav-separator">INFORMATION</div>
-          <nav class="preferences-navigation" aria-label="Information">
-            <button type="button" class="preferences-nav-item" data-settings-section="about"><span class="icon-slot" data-icon="info" aria-hidden="true"></span>About NovaBrowser</button>
-          </nav>
-          <div class="preferences-sidebar-footer">NovaBrowser · Desktop preview</div>
+          <p class="preferences-sidebar-footer">NovaBrowser 0.1.0 <span>·</span> Desktop preview</p>
         </aside>
         <div class="preferences-main">
-          <header class="preferences-topbar">
-            <div class="preferences-breadcrumb"><span>Settings</span><span class="preferences-breadcrumb-separator">/</span><strong id="settings-section-label">General</strong></div>
-            <button type="button" class="preferences-return" id="close-settings"><span class="icon-slot" data-icon="arrow-left" aria-hidden="true"></span>Back to browsing</button>
-          </header>
+          <div class="preferences-topbar">
+            <div class="preferences-breadcrumb">Settings <span>/</span> <strong id="settings-section-label">General</strong></div>
+            <button type="button" class="preferences-return" id="close-settings" title="Back to browsing"><span class="icon-slot" data-icon="x" aria-hidden="true"></span><span>Close settings</span></button>
+          </div>
           <div class="preferences-content" id="settings-content">
             <form id="settings-form" class="preferences-form">
               <section class="preferences-section" data-settings-panel="general">
-                <div class="preferences-section-intro"><span class="preferences-eyebrow">BROWSER BEHAVIOR</span><h1>General</h1><p>Decide what opens when NovaBrowser starts and where your homepage leads.</p></div>
-                <div class="preferences-card">
-                  <div class="preferences-card-heading"><span class="preferences-card-icon" data-icon="house" aria-hidden="true"></span><div><h2>On startup</h2><p>Choose what happens when you launch the browser.</p></div></div>
-                  <label class="preferences-setting-row" for="startup-setting"><span><strong>Startup behavior</strong><small>Restore the last browsing session or open your homepage.</small></span><select id="startup-setting"><option value="restore">Continue where you left off</option><option value="homepage">Open the homepage</option></select></label>
-                  <label class="preferences-setting-row preferences-setting-row-stacked" for="homepage-setting"><span><strong>Homepage URL</strong><small>This address is also available as the new tab destination.</small></span><input id="homepage-setting" type="text" autocomplete="url" spellcheck="false" maxlength="4096" aria-describedby="homepage-help settings-error" placeholder="https://example.com/" /></label>
-                  <p class="preferences-field-hint" id="homepage-help">Enter an HTTP(S) address, a domain, or a search query. Changing this will not navigate away from your current page.</p>
+                <div class="preferences-section-intro"><h1>General</h1><p>Choose how NovaBrowser starts and where your homepage leads.</p></div>
+                <div class="preferences-group">
+                  <h2>On startup</h2>
+                  <label class="preferences-row" for="startup-setting">
+                    <span class="preferences-row-text"><strong>Open on startup</strong><small>Restore the last session or start at your homepage.</small></span>
+                    <select id="startup-setting"><option value="restore">Continue where you left off</option><option value="homepage">Open homepage</option></select>
+                  </label>
+                  <label class="preferences-row is-stacked" for="homepage-setting">
+                    <span class="preferences-row-text"><strong>Homepage</strong><small>Used when opening the homepage and, optionally, new tabs.</small></span>
+                    <input id="homepage-setting" type="text" autocomplete="url" spellcheck="false" maxlength="4096" placeholder="https://example.com/" aria-describedby="homepage-help settings-error" />
+                  </label>
+                  <p class="preferences-field-note" id="homepage-help">Enter a website address or search term. Changing it does not close your current tabs.</p>
                 </div>
+                <div class="preferences-section-note"><span class="icon-slot" data-icon="info" aria-hidden="true"></span>When session restore is enabled, NovaBrowser reopens saved tabs. Inactive tabs load when selected.</div>
               </section>
+
               <section class="preferences-section" data-settings-panel="appearance" hidden>
-                <div class="preferences-section-intro"><span class="preferences-eyebrow">PERSONALIZATION</span><h1>Appearance</h1><p>Make the browser interface feel right for your desktop.</p></div>
-                <div class="preferences-card">
-                  <div class="preferences-card-heading"><span class="preferences-card-icon" data-icon="palette" aria-hidden="true"></span><div><h2>Color theme</h2><p>The preview applies to NovaBrowser's interface, not website content.</p></div></div>
-                  <label class="preferences-setting-row" for="theme-setting"><span><strong>Browser theme</strong><small>Follow Windows or choose a fixed appearance.</small></span><select id="theme-setting"><option value="system">Use system theme</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
-                  <div class="preferences-theme-preview" aria-label="Theme preview"><div class="preferences-preview-top"><span></span><span></span><span></span></div><div class="preferences-preview-content"><div class="preferences-preview-icon"></div><div><strong>NovaBrowser</strong><small>Appearance preview</small></div></div></div>
+                <div class="preferences-section-intro"><h1>Appearance</h1><p>Adjust the look and layout of the browser controls.</p></div>
+                <div class="preferences-group">
+                  <h2>Theme</h2>
+                  <div class="preferences-theme-options" role="radiogroup" aria-label="Browser appearance">
+                    <label class="preferences-theme-option">
+                      <input type="radio" name="appearance" value="system" />
+                      <span class="preferences-theme-preview theme-preview-system"><span></span><span></span></span>
+                      <span class="preferences-theme-label"><span class="icon-slot" data-icon="monitor" aria-hidden="true"></span>System</span>
+                    </label>
+                    <label class="preferences-theme-option">
+                      <input type="radio" name="appearance" value="light" checked />
+                      <span class="preferences-theme-preview theme-preview-light"><span></span><span></span></span>
+                      <span class="preferences-theme-label"><span class="icon-slot" data-icon="sun" aria-hidden="true"></span>Light</span>
+                    </label>
+                    <label class="preferences-theme-option">
+                      <input type="radio" name="appearance" value="dark" />
+                      <span class="preferences-theme-preview theme-preview-dark"><span></span><span></span></span>
+                      <span class="preferences-theme-label"><span class="icon-slot" data-icon="moon" aria-hidden="true"></span>Dark</span>
+                    </label>
+                  </div>
+                  <p class="preferences-field-note">The selected theme applies to NovaBrowser's interface. Website colors remain controlled by the website.</p>
+                </div>
+                <div class="preferences-group">
+                  <h2>Toolbar</h2>
+                  <label class="preferences-row" for="show-home-setting">
+                    <span class="preferences-row-text"><strong>Show Home button</strong><small>Add a Home button beside Back, Forward and Reload.</small></span>
+                    <input class="preferences-switch" id="show-home-setting" type="checkbox" />
+                  </label>
+                  <label class="preferences-row" for="show-bookmarks-setting">
+                    <span class="preferences-row-text"><strong>Show bookmarks bar</strong><small>Display saved pages below the address bar.</small></span>
+                    <input class="preferences-switch" id="show-bookmarks-setting" type="checkbox" />
+                  </label>
                 </div>
               </section>
+
               <section class="preferences-section" data-settings-panel="search" hidden>
-                <div class="preferences-section-intro"><span class="preferences-eyebrow">ADDRESS BAR</span><h1>Search engine</h1><p>Pick the provider used when you type words instead of a URL.</p></div>
-                <div class="preferences-card">
-                  <div class="preferences-card-heading"><span class="preferences-card-icon" data-icon="search" aria-hidden="true"></span><div><h2>Default search provider</h2><p>Changes take effect for new searches in the address bar.</p></div></div>
-                  <label class="preferences-setting-row" for="search-engine-setting"><span><strong>Search with</strong><small>Your search terms are sent to the selected provider.</small></span><select id="search-engine-setting"><option value="google">Google</option><option value="bing">Bing</option><option value="duckduckgo">DuckDuckGo</option></select></label>
+                <div class="preferences-section-intro"><h1>Search engine</h1><p>Choose how words typed into the address bar are searched.</p></div>
+                <div class="preferences-group">
+                  <h2>Default search engine</h2>
+                  <label class="preferences-row" for="search-engine-setting">
+                    <span class="preferences-row-text"><strong>Search used in the address bar</strong><small>Queries are sent to your chosen search provider.</small></span>
+                    <select id="search-engine-setting"><option value="google">Google</option><option value="bing">Bing</option><option value="duckduckgo">DuckDuckGo</option></select>
+                  </label>
+                  <div class="preferences-example-row"><span>Example</span><code>rust browser engine</code><span class="icon-slot" data-icon="arrow-right" aria-hidden="true"></span><span id="settings-search-example">Google Search</span></div>
                 </div>
               </section>
+
               <section class="preferences-section" data-settings-panel="tabs" hidden>
-                <div class="preferences-section-intro"><span class="preferences-eyebrow">WORKSPACE</span><h1>Tabs</h1><p>Choose the starting point for new browsing tabs.</p></div>
-                <div class="preferences-card">
-                  <div class="preferences-card-heading"><span class="preferences-card-icon" data-icon="list" aria-hidden="true"></span><div><h2>New tabs</h2><p>Configure what opens when you use the plus button or Ctrl+T.</p></div></div>
-                  <label class="preferences-setting-row" for="new-tab-setting"><span><strong>New tab destination</strong><small>Blank tabs wait until you enter a web address.</small></span><select id="new-tab-setting"><option value="homepage">Open homepage</option><option value="blank">Open blank tab</option></select></label>
-                  <p class="preferences-field-hint">The current desktop preview supports up to 8 tabs. Previously open tabs can be restored at startup.</p>
+                <div class="preferences-section-intro"><h1>Tabs</h1><p>Choose what appears when opening a new tab.</p></div>
+                <div class="preferences-group">
+                  <h2>New tabs</h2>
+                  <label class="preferences-row" for="new-tab-setting">
+                    <span class="preferences-row-text"><strong>When opening a new tab</strong><small>Applies to the plus button and Ctrl+T.</small></span>
+                    <select id="new-tab-setting"><option value="homepage">Open homepage</option><option value="blank">Open a blank tab</option></select>
+                  </label>
+                  <div class="preferences-row">
+                    <span class="preferences-row-text"><strong>Maximum open tabs</strong><small>Current engine preview limit.</small></span><span class="preferences-static-value">8 tabs</span>
+                  </div>
                 </div>
               </section>
+
               <section class="preferences-section" data-settings-panel="privacy" hidden>
-                <div class="preferences-section-intro"><span class="preferences-eyebrow">YOUR DATA</span><h1>Privacy &amp; data</h1><p>Control local browsing history stored in the NovaBrowser profile.</p></div>
-                <div class="preferences-card">
-                  <div class="preferences-card-heading"><span class="preferences-card-icon" data-icon="shield-check" aria-hidden="true"></span><div><h2>Browsing history</h2><p>Manage the pages listed under History in this browser.</p></div></div>
-                  <label class="preferences-setting-row" for="save-history-setting"><span><strong>Save browsing history</strong><small>When disabled, future visits are not added to the local history list.</small></span><input id="save-history-setting" type="checkbox" checked /></label>
-                  <div class="preferences-setting-row"><span><strong>Clear history</strong><small>Delete recorded visits from this profile without removing bookmarks.</small></span><button type="button" id="settings-clear-history" class="preferences-danger-action"><span class="icon-slot" data-icon="trash" aria-hidden="true"></span>Clear history</button></div>
-                  <p id="settings-history-message" class="preferences-feedback" role="status" aria-live="polite"></p>
+                <div class="preferences-section-intro"><h1>Privacy &amp; data</h1><p>Manage browsing records saved on this computer.</p></div>
+                <div class="preferences-group">
+                  <h2>History</h2>
+                  <label class="preferences-row" for="save-history-setting">
+                    <span class="preferences-row-text"><strong>Save browsing history</strong><small>New page visits are added to your local history when enabled.</small></span>
+                    <input class="preferences-switch" id="save-history-setting" type="checkbox" checked />
+                  </label>
+                  <div class="preferences-row">
+                    <span class="preferences-row-text"><strong>Clear browsing history</strong><small>Delete visit records. Bookmarks and tabs are preserved.</small></span>
+                    <button type="button" id="settings-clear-history" class="preferences-secondary-action">Clear history</button>
+                  </div>
                 </div>
-                <div class="preferences-notice"><span class="icon-slot" data-icon="info" aria-hidden="true"></span><p>Cookie controls, site permissions, and sandbox isolation are not available yet. Clearing local history does not delete cookies or other website data.</p></div>
+                <div class="preferences-group">
+                  <h2>Bookmarks</h2>
+                  <div class="preferences-row">
+                    <span class="preferences-row-text"><strong>Remove all bookmarks</strong><small>Permanently clear saved bookmarks from this profile.</small></span>
+                    <button type="button" id="settings-clear-bookmarks" class="preferences-danger-action">Clear bookmarks</button>
+                  </div>
+                </div>
+                <p id="settings-history-message" class="preferences-message" role="status" aria-live="polite"></p>
+                <div class="preferences-section-note"><span class="icon-slot" data-icon="info" aria-hidden="true"></span>Deleting history does not remove cookies or other site data. Cookie and permission controls are not yet available in this engine preview.</div>
               </section>
+
               <section class="preferences-section" data-settings-panel="about" hidden>
-                <div class="preferences-section-intro"><span class="preferences-eyebrow">ABOUT</span><h1>About NovaBrowser</h1><p>An experimental desktop browser built with Rust and Tauri.</p></div>
-                <div class="preferences-card preferences-about-card">
-                  <div class="preferences-about-logo">N</div><div><h2>NovaBrowser</h2><p>Version 0.1.0 · Desktop preview</p><small>Browser engine: Obscura (Rust/V8). Interface: Tauri 2 / WebView2. Icons: Lucide.</small></div>
+                <div class="preferences-section-intro"><h1>About NovaBrowser</h1><p>Version and browser engine information.</p></div>
+                <div class="preferences-group">
+                  <div class="preferences-about-heading"><span class="preferences-about-brand">N</span><div><strong>NovaBrowser</strong><small>Version 0.1.0 · Desktop preview</small></div></div>
+                  <div class="preferences-row"><span class="preferences-row-text"><strong>Browser engine</strong><small>Experimental Rust rendering and JavaScript engine</small></span><span class="preferences-static-value">Obscura / V8</span></div>
+                  <div class="preferences-row"><span class="preferences-row-text"><strong>Desktop application</strong><small>Native window and browser interface</small></span><span class="preferences-static-value">Tauri 2 / WebView2</span></div>
+                  <div class="preferences-row"><span class="preferences-row-text"><strong>Icon system</strong><small>Self-hosted SVG icons</small></span><span class="preferences-static-value">Lucide</span></div>
                 </div>
-                <div class="preferences-card">
-                  <div class="preferences-card-heading"><span class="preferences-card-icon" data-icon="keyboard" aria-hidden="true"></span><div><h2>Keyboard shortcuts</h2><p>Common actions available in this preview.</p></div></div>
+                <div class="preferences-group">
+                  <h2>Keyboard shortcuts</h2>
                   <div class="preferences-shortcut"><span>New tab</span><kbd>Ctrl</kbd><kbd>T</kbd></div>
-                  <div class="preferences-shortcut"><span>Focus address bar</span><kbd>Ctrl</kbd><kbd>L</kbd></div>
-                  <div class="preferences-shortcut"><span>Open settings</span><kbd>Ctrl</kbd><kbd>,</kbd></div>
+                  <div class="preferences-shortcut"><span>Address bar</span><kbd>Ctrl</kbd><kbd>L</kbd></div>
+                  <div class="preferences-shortcut"><span>Settings</span><kbd>Ctrl</kbd><kbd>,</kbd></div>
                   <div class="preferences-shortcut"><span>Bookmark current page</span><kbd>Ctrl</kbd><kbd>D</kbd></div>
                 </div>
-                <div class="preferences-notice"><span class="icon-slot" data-icon="info" aria-hidden="true"></span><p>This is a browser-engine preview, not a production security boundary or a replacement for a fully sandboxed browser.</p></div>
+                <div class="preferences-section-note"><span class="icon-slot" data-icon="info" aria-hidden="true"></span>This is an engineering preview and does not yet provide the isolation and security guarantees of production browsers.</div>
               </section>
+
               <footer class="preferences-actionbar">
-                <p id="settings-error" class="preferences-save-error" role="alert" hidden></p>
-                <p id="settings-feedback" class="preferences-save-feedback" role="status" aria-live="polite"></p>
-                <button type="button" class="preferences-reset" id="reset-settings">Reset changes</button>
-                <button type="submit" class="settings-save" id="save-settings"><span class="icon-slot" data-icon="check" aria-hidden="true"></span>Save changes</button>
+                <p id="settings-error" role="alert" hidden></p>
+                <p id="settings-feedback" role="status" aria-live="polite"></p>
+                <button id="reset-settings" type="button" class="preferences-reset" disabled>Discard changes</button>
+                <button id="save-settings" type="submit" class="settings-save" disabled><span class="icon-slot" data-icon="check" aria-hidden="true"></span>Save changes</button>
               </footer>
             </form>
           </div>
         </div>
       </section>
-
     </main>
   </body>
 </html>

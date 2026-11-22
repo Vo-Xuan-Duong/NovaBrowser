@@ -616,6 +616,11 @@ fn browser_remove_bookmark(state: State<'_, EngineState>, url: String) -> Result
 }
 
 #[tauri::command]
+fn browser_clear_bookmarks(state: State<'_, EngineState>) -> Result<(), String> {
+    state.browser_data.clear_bookmarks()
+}
+
+#[tauri::command]
 fn browser_get_history(state: State<'_, EngineState>) -> Vec<Visit> {
     state.browser_data.history()
 }
@@ -639,6 +644,8 @@ fn browser_save_settings(
     new_tab: String,
     search_engine: String,
     save_history: bool,
+    show_home_button: bool,
+    show_bookmarks_bar: bool,
 ) -> Result<BrowserSettings, String> {
     if !matches!(theme.as_str(), "light" | "dark" | "system") {
         return Err("Choose a valid appearance".to_string());
@@ -659,6 +666,7 @@ fn browser_save_settings(
         .map_err(|error| error.to_string())?;
     let settings = BrowserSettings {
         theme, homepage, startup, new_tab, search_engine, save_history,
+        show_home_button, show_bookmarks_bar,
     };
     state.browser_data.save_settings(settings.clone())?;
     Ok(settings)
@@ -699,6 +707,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             browser_is_bookmarked,
             browser_get_bookmarks,
             browser_remove_bookmark,
+            browser_clear_bookmarks,
             browser_get_history,
             browser_clear_history,
             browser_get_settings,

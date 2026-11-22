@@ -15,6 +15,8 @@
   const statusMessage = document.getElementById("status-message");
   const loadingIndicator = document.getElementById("loading-indicator");
   const bookmarkButton = document.getElementById("bookmark-current");
+  const bookmarksBar = document.getElementById("bookmarks-bar");
+  const homeAction = document.getElementById("home-action");
   const libraryPanel = document.getElementById("library-panel");
   const libraryList = document.getElementById("library-list");
   const libraryTitle = document.getElementById("library-title");
@@ -27,6 +29,56 @@
   let activeTabId = null;
   let currentTitle = "New tab";
   let currentTabAddress = "";
+  let currentPreferences = { homepage: "https://example.com/", showHomeButton: false, showBookmarksBar: false };
+  let bookmarksRefreshSeq = 0;
+
+  function applyBrowserPreferences(settings) {
+    if (!settings) return;
+    currentPreferences = { ...currentPreferences, ...settings };
+    homeAction.hidden = !currentPreferences.showHomeButton;
+    bookmarksBar.hidden = !currentPreferences.showBookmarksBar;
+    if (!bookmarksBar.hidden) void refreshBookmarksBar();
+    else {
+      ++bookmarksRefreshSeq;
+      bookmarksBar.replaceChildren();
+    }
+    void publishSize();
+  }
+
+  async function refreshBookmarksBar() {
+    const seq = ++bookmarksRefreshSeq;
+    if (bookmarksBar.hidden) return;
+    try {
+      const entries = await invoke("browser_get_bookmarks");
+      if (seq !== bookmarksRefreshSeq || bookmarksBar.hidden) return;
+      bookmarksBar.replaceChildren();
+      if (!Array.isArray(entries) || entries.length === 0) {
+        const empty = document.createElement("span");
+        empty.className = "bookmarks-bar-empty";
+        empty.textContent = "Bookmarks you save will appear here";
+        bookmarksBar.append(empty);
+        return;
+      }
+      for (const bookmark of entries) {
+        const link = document.createElement("button");
+        link.type = "button";
+        link.className = "bookmarks-bar-entry";
+        link.title = bookmark.url;
+        link.append(icons.create("bookmark"));
+        const name = document.createElement("span");
+        name.textContent = bookmark.title || bookmark.url;
+        link.append(name);
+        link.addEventListener("click", () => {
+          if (settingsView.isOpen()) closeSettings();
+          void call("browser_navigate", { address: bookmark.url });
+        });
+        bookmarksBar.append(link);
+      }
+    } catch (error) {
+      showError(error);
+    }
+  }
+
 
   const settingsView = window.NovaSettings.create({
     invoke,
@@ -35,22 +87,37 @@
       pageArea.hidden = true;
       bookmarkButton.disabled = true;
       settingsTrigger.classList.add("is-active");
-      document.title = "Settings - NovaBrowser";
+      refreshActiveTabChrome();
     },
     onRoute(section) {
       address.value = section === "general" ? "nova://settings" : `nova://settings/${section}`;
+    },
+    onSaved(settings) {
+      applyBrowserPreferences(settings);
+      void refreshBookmarkState();
     },
     onClose() {
       pageArea.hidden = false;
       bookmarkButton.disabled = false;
       settingsTrigger.classList.remove("is-active");
       address.value = currentTabAddress;
-      document.title = `${currentTitle} - NovaBrowser`;
+      refreshActiveTabChrome();
       pageArea.focus();
       void refreshBookmarkState();
       void publishSize();
     },
   });
+
+  function refreshActiveTabChrome() {
+    const active = document.querySelector(".tab.is-active");
+    if (!active) return;
+    const showingSettings = settingsView.isOpen();
+    const title = active.querySelector(".tab-title");
+    if (title) title.textContent = showingSettings ? "Settings" : currentTitle;
+    const icon = active.querySelector(".brand-mark");
+    if (icon) icon.replaceChildren(icons.create(showingSettings ? "settings-2" : "globe"));
+    document.title = showingSettings ? "Settings - NovaBrowser" : `${currentTitle} - NovaBrowser`;
+  }
 
   function renderTabs(tabs) {
     tabList.replaceChildren();
@@ -70,10 +137,10 @@
       const mark = document.createElement("span");
       mark.className = "brand-mark";
       mark.setAttribute("aria-hidden", "true");
-      mark.append(icons.create("globe"));
+      mark.append(icons.create(tab.active && settingsView.isOpen() ? "settings-2" : "globe"));
       const title = document.createElement("span");
       title.className = "tab-title";
-      title.textContent = tab.title || "New tab";
+      title.textContent = tab.active && settingsView.isOpen() ? "Settings" : (tab.title || "New tab");
       if (tab.active) title.id = "tab-title";
       const close = document.createElement("button");
       close.className = "tab-close";
@@ -140,6 +207,10 @@
   document.getElementById("reload").addEventListener("click", () => {
     if (!settingsView.isOpen()) void call("browser_reload");
   });
+  homeAction.addEventListener("click", () => {
+    if (settingsView.isOpen()) closeSettings();
+    void call("browser_navigate", { address: currentPreferences.homepage });
+  });
 
   function setBookmarkIcon(bookmarked) {
     bookmarkButton.classList.toggle("is-bookmarked", bookmarked);
@@ -171,6 +242,7 @@
     });
     if (typeof bookmarked === "boolean") {
       setBookmarkIcon(bookmarked);
+      void refreshBookmarksBar();
       if (libraryMode === "bookmarks" && !libraryPanel.hidden) void renderLibrary("bookmarks");
     }
   });
@@ -232,6 +304,7 @@
         remove.addEventListener("click", async () => {
           await call("browser_remove_bookmark", { url: entry.url });
           await refreshBookmarkState();
+          void refreshBookmarksBar();
           void renderLibrary("bookmarks");
         });
         row.append(remove);
@@ -394,9 +467,7 @@
       listen("browser-tabs", ({ payload }) => renderTabs(payload)),
       listen("browser-title", ({ payload }) => {
         currentTitle = payload || "Untitled page";
-        const activeLabel = document.querySelector(".tab.is-active .tab-title");
-        if (activeLabel) activeLabel.textContent = currentTitle;
-        if (!settingsView.isOpen()) document.title = `${currentTitle} - NovaBrowser`;
+        refreshActiveTabChrome();
         if (libraryMode === "bookmarks" && !libraryPanel.hidden) void renderLibrary("bookmarks");
       }),
       listen("browser-frame", ({ payload }) => {

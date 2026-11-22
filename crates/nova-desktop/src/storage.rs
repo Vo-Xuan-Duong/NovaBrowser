@@ -36,6 +36,8 @@ pub struct BrowserSettings {
     pub new_tab: String,
     pub search_engine: String,
     pub save_history: bool,
+    pub show_home_button: bool,
+    pub show_bookmarks_bar: bool,
 }
 
 impl Default for BrowserSettings {
@@ -47,6 +49,8 @@ impl Default for BrowserSettings {
             new_tab: "homepage".to_string(),
             search_engine: "google".to_string(),
             save_history: true,
+            show_home_button: false,
+            show_bookmarks_bar: false,
         }
     }
 }
@@ -176,6 +180,16 @@ impl BrowserDataStore {
         Ok(is_bookmarked)
     }
 
+    pub fn clear_bookmarks(&self) -> Result<(), String> {
+        let mut data = self.lock();
+        let old = std::mem::take(&mut data.bookmarks);
+        if let Err(error) = self.save(&data) {
+            data.bookmarks = old;
+            return Err(error);
+        }
+        Ok(())
+    }
+
     pub fn remove_bookmark(&self, url: &str) -> Result<(), String> {
         let mut data = self.lock();
         data.bookmarks.retain(|bookmark| bookmark.url != url);
@@ -285,6 +299,8 @@ mod tests {
             new_tab: "blank".into(),
             search_engine: "duckduckgo".into(),
             save_history: false,
+            show_home_button: true,
+            show_bookmarks_bar: true,
         };
         store.save_settings(changed.clone()).unwrap();
         let recovered = BrowserDataStore::load(path.clone());
@@ -303,6 +319,22 @@ mod tests {
         assert_eq!(safe.new_tab, "homepage");
         assert_eq!(safe.search_engine, "google");
         assert!(!safe.save_history);
+        assert!(!safe.show_home_button);
+        assert!(!safe.show_bookmarks_bar);
+    }
+
+    #[test]
+    fn clearing_bookmarks_does_not_clear_history() {
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("nova-clear-bookmarks-{}-{stamp}.json", std::process::id()));
+        let store = BrowserDataStore::load(path.clone());
+        store.toggle_bookmark("Example".into(), "https://example.com/".into()).unwrap();
+        store.record_visit("Example".into(), "https://example.com/".into()).unwrap();
+        store.clear_bookmarks().unwrap();
+        let loaded = BrowserDataStore::load(path.clone());
+        assert!(loaded.bookmarks().is_empty());
+        assert_eq!(loaded.history().len(), 1);
+        let _ = fs::remove_file(path);
     }
 
     #[test]

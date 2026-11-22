@@ -36,9 +36,9 @@ The original engine requires significant disk space to compile V8.
 - Persistent tab session restore: reopen previous tabs and selected tab, loading
   inactive tabs only when selected.
 - Local bookmarks and browsing history with quick access from the toolbar.
-- Full Settings workspace (`nova://settings`): startup behavior, light/dark/
-  system theme, default search engine, new-tab behavior, homepage and
-  history-recording controls.
+- Full browser Settings workspace (`nova://settings`): searchable sections,
+  startup, appearance, search provider, tabs, privacy, and about; working
+  Home button and bookmarks-bar toggles, plus separate data-clearing controls.
 - Integration with the existing Rust DOM, networking and V8 JavaScript runtime.
 - Basic page screenshots, mouse clicks, scrolling and text entry.
 - Viewport updates on window resize, with bounded frame dimensions.

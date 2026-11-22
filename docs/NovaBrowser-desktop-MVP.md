@@ -162,3 +162,36 @@ Serde defaults so older profile files continue to load. All select values
 and homepage size/scheme are validated again in Rust. Reset changes restores
 the last persisted values, while Back to browsing discards unsaved previews.
 Page rendering remains handled by Obscura, not by WebView2.
+
+## Settings visual refinement and toolbar controls
+
+Settings no longer uses large decorative cards and artificial status headers.
+It has a compact sidebar with a functional section search, understated page
+heading, slim bordered setting groups, and a bottom save bar. Save/Discard
+are enabled only when settings differ from persisted values. Three native
+radio controls offer System/Light/Dark theme previews with keyboard access.
+The About panel documents actual capabilities; unsupported cookie/permission
+controls are not falsely exposed as working preferences.
+
+The Windows titlebar now keeps its Minimize, Maximize and Close buttons
+in the same 42px row as the tabs, instead of visually overlapping the
+toolbar. While Settings is open, the current tab displays "Settings"
+and restores the original title and icon upon returning.
+
+Two new persisted Appearance settings have visible behavior:
+- **Show Home button** adds a functional home action to the browser navigation
+  controls. Clicking it navigates to the saved homepage.
+- **Show bookmarks bar** renders locally saved bookmarks in a toolbar below
+  the omnibox. Adding, removing or clearing bookmarks refreshes the bar.
+
+Privacy & data now includes separate confirmation-based controls to clear
+history or all bookmarks. Clearing one does not silently remove the other.
+The Settings search filters actual sections by their text; it does not search
+the web or claim unsupported engine preferences.
+
+Local verification checklist: open Settings, search for "homepage" or
+"history", switch theme and discard, save/show Home and bookmark bar, visit
+the home URL, add/remove a bookmark, clear bookmark/history separately,
+resize the Tauri window and inspect titlebar control alignment, and restart
+to confirm preferences survive. Test the engine with cargo check/test locally;
+no GitHub Actions workflows are used.

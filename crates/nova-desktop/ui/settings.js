@@ -1,26 +1,31 @@
-/* Dedicated native NovaBrowser settings page.
- * This is chrome UI rendered by Tauri/WebView2, not a website in Obscura.
- */
+/* NovaBrowser's native Settings page; intentionally offline and framework-free. */
 (() => {
   "use strict";
 
-  function create({ invoke, onOpen, onClose, onRoute }) {
+  function create({ invoke, onOpen, onClose, onRoute, onSaved }) {
     const page = document.getElementById("settings-page");
     const form = document.getElementById("settings-form");
-    const theme = document.getElementById("theme-setting");
+    const themeChoices = [...page.querySelectorAll('input[name="appearance"]')];
     const homepage = document.getElementById("homepage-setting");
     const startup = document.getElementById("startup-setting");
     const newTab = document.getElementById("new-tab-setting");
     const searchEngine = document.getElementById("search-engine-setting");
     const saveHistory = document.getElementById("save-history-setting");
+    const showHome = document.getElementById("show-home-setting");
+    const showBookmarks = document.getElementById("show-bookmarks-setting");
     const error = document.getElementById("settings-error");
     const feedback = document.getElementById("settings-feedback");
     const saveButton = document.getElementById("save-settings");
+    const resetButton = document.getElementById("reset-settings");
     const clearHistory = document.getElementById("settings-clear-history");
+    const clearBookmarks = document.getElementById("settings-clear-bookmarks");
     const historyMessage = document.getElementById("settings-history-message");
     const sectionLabel = document.getElementById("settings-section-label");
-    const navigation = Array.from(page.querySelectorAll("[data-settings-section]"));
-    const sections = Array.from(page.querySelectorAll("[data-settings-panel]"));
+    const searchInput = document.getElementById("settings-search");
+    const searchSummary = document.getElementById("settings-search-summary");
+    const content = document.getElementById("settings-content");
+    const navigation = [...page.querySelectorAll("[data-settings-section]")];
+    const sections = [...page.querySelectorAll("[data-settings-panel]")];
     const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
     const labels = {
       general: "General", appearance: "Appearance", search: "Search engine",
@@ -31,69 +36,135 @@
     let section = "general";
     let previewTheme = "light";
 
+    function selectedTheme() {
+      return themeChoices.find((choice) => choice.checked)?.value || "light";
+    }
+
     function applyTheme(value) {
       previewTheme = value;
-      const resolved = value === "system"
+      const actual = value === "system"
         ? (systemTheme.matches ? "dark" : "light")
         : value;
-      document.documentElement.dataset.theme = resolved === "dark" ? "dark" : "light";
+      document.documentElement.dataset.theme = actual === "dark" ? "dark" : "light";
     }
 
     systemTheme.addEventListener("change", () => {
       if (previewTheme === "system") applyTheme("system");
     });
 
+    function readState() {
+      return {
+        theme: selectedTheme(),
+        homepage: homepage.value.trim(),
+        startup: startup.value,
+        newTab: newTab.value,
+        searchEngine: searchEngine.value,
+        saveHistory: saveHistory.checked,
+        showHomeButton: showHome.checked,
+        showBookmarksBar: showBookmarks.checked,
+      };
+    }
+
+    function isDirty() {
+      if (!persisted) return false;
+      return Object.entries(readState()).some(([key, value]) => value !== persisted[key]);
+    }
+
+    function updateSaveState() {
+      saveButton.disabled = pending || !isDirty();
+      resetButton.disabled = pending || !isDirty();
+    }
+
+    function updateSearchExample() {
+      const names = { google: "Google Search", bing: "Bing Search", duckduckgo: "DuckDuckGo" };
+      document.getElementById("settings-search-example").textContent = names[searchEngine.value] || "Google Search";
+    }
+
     function fill(settings) {
-      theme.value = settings.theme || "light";
+      const target = settings.theme || "light";
+      const radio = themeChoices.find((choice) => choice.value === target) || themeChoices[1];
+      for (const choice of themeChoices) choice.checked = choice === radio;
       homepage.value = settings.homepage || "https://example.com/";
       startup.value = settings.startup || "restore";
       newTab.value = settings.newTab || "homepage";
       searchEngine.value = settings.searchEngine || "google";
       saveHistory.checked = settings.saveHistory !== false;
+      showHome.checked = settings.showHomeButton === true;
+      showBookmarks.checked = settings.showBookmarksBar === true;
       homepage.removeAttribute("aria-invalid");
       error.hidden = true;
       error.textContent = "";
       feedback.textContent = "";
-      applyTheme(theme.value);
+      historyMessage.textContent = "";
+      applyTheme(selectedTheme());
+      updateSearchExample();
+      updateSaveState();
     }
 
-    function selectSection(name) {
+    function selectSection(name, { clearSearch = false } = {}) {
       section = Object.hasOwn(labels, name) ? name : "general";
+      if (clearSearch) {
+        searchInput.value = "";
+        filterNavigation();
+      }
       for (const button of navigation) {
-        const selected = button.dataset.settingsSection === section;
-        button.classList.toggle("is-active", selected);
-        if (selected) button.setAttribute("aria-current", "page");
+        const active = button.dataset.settingsSection === section;
+        button.classList.toggle("is-active", active);
+        if (active) button.setAttribute("aria-current", "page");
         else button.removeAttribute("aria-current");
       }
       for (const panel of sections) panel.hidden = panel.dataset.settingsPanel !== section;
       sectionLabel.textContent = labels[section];
-      document.getElementById("settings-content").scrollTop = 0;
+      content.scrollTop = 0;
       if (!page.hidden) onRoute(section);
+    }
+
+    function filterNavigation() {
+      const query = searchInput.value.toLocaleLowerCase().trim();
+      let matches = 0;
+      let first = null;
+      for (const button of navigation) {
+        const name = button.dataset.settingsSection;
+        const panel = sections.find((candidate) => candidate.dataset.settingsPanel === name);
+        const haystack = (labels[name] + " " + (panel?.textContent || "")).toLocaleLowerCase();
+        const match = !query || haystack.includes(query);
+        button.hidden = !match;
+        if (match) {
+          matches += 1;
+          if (!first) first = name;
+        }
+      }
+      searchSummary.textContent = !query ? "" : matches
+        ? matches === 1 ? "1 matching section" : matches + " matching sections"
+        : "No matching settings";
+      if (query && first && navigation.find((button) => button.dataset.settingsSection === section)?.hidden) {
+        selectSection(first);
+      }
     }
 
     async function open(name = "general") {
       if (pending) return;
       if (!page.hidden) {
-        selectSection(name);
+        selectSection(name, { clearSearch: true });
         return;
       }
       const fresh = await invoke("browser_get_settings");
       persisted = { ...fresh };
       fill(persisted);
-      historyMessage.textContent = "";
+      searchInput.value = "";
+      filterNavigation();
       page.hidden = false;
       onOpen();
       selectSection(name);
-      const selected = navigation.find((button) => button.dataset.settingsSection === section);
-      selected?.focus();
     }
 
     function close() {
       if (page.hidden || pending) return;
       if (persisted) applyTheme(persisted.theme);
       page.hidden = true;
-      error.hidden = true;
       feedback.textContent = "";
+      error.hidden = true;
+      searchInput.value = "";
       onClose();
     }
 
@@ -103,87 +174,108 @@
       feedback.textContent = "";
       if (invalidHomepage) {
         homepage.setAttribute("aria-invalid", "true");
-        selectSection("general");
+        selectSection("general", { clearSearch: true });
         homepage.focus();
       }
     }
 
     for (const button of navigation) {
-      button.addEventListener("click", () => selectSection(button.dataset.settingsSection));
+      button.addEventListener("click", () => selectSection(button.dataset.settingsSection, { clearSearch: true }));
     }
+    searchInput.addEventListener("input", filterNavigation);
+    searchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        const first = navigation.find((button) => !button.hidden);
+        if (first) {
+          event.preventDefault();
+          selectSection(first.dataset.settingsSection, { clearSearch: true });
+          first.focus();
+        }
+      }
+    });
     document.getElementById("close-settings").addEventListener("click", close);
-    document.getElementById("reset-settings").addEventListener("click", () => {
+    resetButton.addEventListener("click", () => {
       if (!persisted || pending) return;
       fill(persisted);
-      feedback.textContent = "Unsaved changes discarded.";
+      feedback.textContent = "Changes discarded.";
     });
-    theme.addEventListener("change", () => {
-      applyTheme(theme.value);
+
+    function onChange() {
+      error.hidden = true;
       feedback.textContent = "";
-    });
-    for (const control of [homepage, startup, newTab, searchEngine, saveHistory]) {
-      control.addEventListener("change", () => { feedback.textContent = ""; error.hidden = true; });
+      updateSaveState();
+    }
+    for (const choice of themeChoices) {
+      choice.addEventListener("change", () => {
+        applyTheme(selectedTheme());
+        onChange();
+      });
+    }
+    for (const control of [homepage, startup, newTab, searchEngine, saveHistory, showHome, showBookmarks]) {
+      control.addEventListener("change", onChange);
     }
     homepage.addEventListener("input", () => {
       homepage.removeAttribute("aria-invalid");
-      error.hidden = true;
-      feedback.textContent = "";
+      onChange();
     });
+    searchEngine.addEventListener("change", updateSearchExample);
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (pending || !persisted) return;
-      const url = homepage.value.trim();
-      if (!url) { showError("Enter a homepage URL or search query.", true); return; }
-      if (new TextEncoder().encode(url).length > 4096) {
+      if (pending || !persisted || !isDirty()) return;
+      const next = readState();
+      if (!next.homepage) { showError("Enter a homepage URL or search query.", true); return; }
+      if (new TextEncoder().encode(next.homepage).length > 4096) {
         showError("Homepage is too long (maximum 4,096 bytes).", true);
         return;
       }
       pending = true;
-      saveButton.disabled = true;
+      updateSaveState();
       error.hidden = true;
       feedback.textContent = "";
       try {
-        const settings = await invoke("browser_save_settings", {
-          theme: theme.value,
-          homepage: url,
-          startup: startup.value,
-          newTab: newTab.value,
-          searchEngine: searchEngine.value,
-          saveHistory: saveHistory.checked,
-        });
-        persisted = { ...settings };
+        const saved = await invoke("browser_save_settings", next);
+        persisted = { ...saved };
         fill(persisted);
-        feedback.textContent = "Your settings have been saved.";
+        onSaved(persisted);
+        feedback.textContent = "Changes saved.";
       } catch (cause) {
         const message = String(cause);
         showError(message, /home|address|url|http/i.test(message));
       } finally {
         pending = false;
-        saveButton.disabled = false;
+        updateSaveState();
       }
     });
 
-    clearHistory.addEventListener("click", async () => {
+    async function clearItems(kind) {
       if (pending || page.hidden) return;
-      if (!window.confirm("Clear all recorded browsing history? Bookmarks will be kept.")) return;
-      clearHistory.disabled = true;
+      const isBookmarks = kind === "bookmarks";
+      const label = isBookmarks ? "bookmarks" : "browsing history";
+      if (!window.confirm("Permanently clear all " + label + " from this browser?")) return;
+      const button = isBookmarks ? clearBookmarks : clearHistory;
+      button.disabled = true;
       historyMessage.textContent = "";
       try {
-        await invoke("browser_clear_history");
-        historyMessage.textContent = "Browsing history cleared. Bookmarks were not changed.";
+        await invoke(isBookmarks ? "browser_clear_bookmarks" : "browser_clear_history");
+        historyMessage.textContent = (isBookmarks ? "Bookmarks" : "Browsing history") + " cleared.";
+        onSaved(persisted);
       } catch (cause) {
-        historyMessage.textContent = "Unable to clear history: " + String(cause);
+        historyMessage.textContent = "Unable to clear " + label + ": " + String(cause);
       } finally {
-        clearHistory.disabled = false;
+        button.disabled = false;
       }
-    });
+    }
+
+    clearHistory.addEventListener("click", () => void clearItems("history"));
+    clearBookmarks.addEventListener("click", () => void clearItems("bookmarks"));
 
     return Object.freeze({
       open, close, isOpen: () => !page.hidden,
       applySaved(settings) {
         persisted = { ...settings };
         if (page.hidden) applyTheme(settings.theme || "light");
+        onSaved(persisted);
       },
     });
   }
