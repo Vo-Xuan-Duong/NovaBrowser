@@ -11,6 +11,9 @@ use std::io::{self, BufRead, Write};
 use serde::Deserialize;
 use serde_json::json;
 
+#[cfg(not(target_os = "windows"))]
+compile_error!("The native Servo child-window helper currently supports Windows only.");
+
 use servo::{
     InputEvent, Key, KeyState, KeyboardEvent, Modifiers, MouseButton, NavigationRequest,
     MouseButtonAction, MouseButtonEvent, MouseMoveEvent, RenderingContext,
@@ -18,13 +21,13 @@ use servo::{
     WheelMode, WindowRenderingContext,
 };
 use servo_embedder_traits::EventLoopWaker;
- use url::Url;
+use url::Url;
 use webrender_api::units::DevicePoint;
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton as WinitButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
- use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey};
+use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey};
 use winit::raw_window_handle::{
     HasDisplayHandle, HasWindowHandle, RawWindowHandle, Win32WindowHandle,
 };
@@ -52,6 +55,9 @@ fn emit(event: serde_json::Value) {
 }
 
 fn main() {
+    // Match the Servo upstream minimal embedder: choose the rustls provider
+    // before initializing networking and the WebView engine.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let mut args = std::env::args().skip(1);
     let parent = match (args.next().as_deref(), args.next()) {
         (Some("--parent-hwnd"), Some(value)) => value.parse::<isize>().unwrap_or(0),
@@ -269,8 +275,10 @@ impl ApplicationHandler<Event> for Embedder {
             .with_visible(false)
             .with_position(PhysicalPosition::new(0, 120))
             .with_inner_size(PhysicalSize::new(1100, 650));
-        // SAFETY: this process owns the live Tauri parent HWND. The child
-        // is dropped before the Tauri parent window is destroyed.
+        // SAFETY: the trusted NovaBrowser parent process provides a live
+        // HWND and keeps it alive until this helper receives Shutdown.
+        // Windows permits cross-process native child windows, subject to
+        // DPI-awareness restrictions verified during local integration.
         let attrs = unsafe { attrs.with_parent_window(Some(parent)) };
         let window = match event_loop.create_window(attrs) {
             Ok(window) => Rc::new(window),
