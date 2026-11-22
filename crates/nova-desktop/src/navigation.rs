@@ -91,7 +91,19 @@ mod tests {
     fn normalizes_http_hostnames_and_searches() {
         assert_eq!(normalize_address("example.com").unwrap(), "https://example.com/");
         assert_eq!(normalize_address("localhost:3000").unwrap(), "http://localhost:3000/");
-        assert_eq!(normalize_address("hello browser").unwrap(), "https://www.google.com/search?q=hello%20browser");
+        // The URL serializer may normalize spaces as '+' (form-style encoding)
+        // instead of '%20'. Both decode to the same search query.
+        let search = Url::parse(&normalize_address("hello browser").unwrap()).unwrap();
+        assert_eq!(search.host_str(), Some("www.google.com"));
+        assert_eq!(search.path(), "/search");
+        assert_eq!(search.query_pairs().find(|(key, _)| key == "q").unwrap().1, "hello browser");
+    }
+
+    #[test]
+    fn search_preserves_literal_plus_and_unicode() {
+        let search = Url::parse(&normalize_address("C++ tiếng Việt").unwrap()).unwrap();
+        let query = search.query_pairs().find(|(key, _)| key == "q").unwrap().1;
+        assert_eq!(query, "C++ tiếng Việt");
     }
 
     #[test]
