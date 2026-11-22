@@ -23,6 +23,11 @@ assert.match(workspace, /"engines\/servo-native"/,
 assert.match(engine, /^\[workspace\]\s*$/m,
   "Servo must own its own Cargo workspace and lockfile");
 assert.match(engine, /^servo\s*=\s*"=0\.8\.0"\s*$/m);
+assert.match(renderer, /^use embedder_traits::EventLoopWaker;$/m,
+  "servo-embedder-traits exports the Rust crate as embedder_traits");
+assert.doesNotMatch(renderer, /use servo_embedder_traits::/,
+  "Do not import using the Cargo package's hyphenated name");
+
 assert.doesNotMatch(engine, /^\s*(obscura-browser|deno_core|v8)\s*=/m);
 assert.match(adapter, /strip_prefix\("NOVA\\t"\)/);
 assert.match(renderer, /writeln!\(stdout,\s*"NOVA\\t\{event\}"\)/);

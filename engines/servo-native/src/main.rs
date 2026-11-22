@@ -20,7 +20,7 @@ use servo::{
     Servo, ServoBuilder, WebView, WebViewBuilder, WheelDelta, WheelEvent,
     WheelMode, WindowRenderingContext,
 };
-use servo_embedder_traits::EventLoopWaker;
+use embedder_traits::EventLoopWaker;
 use url::Url;
 use webrender_api::units::DevicePoint;
 use winit::application::ApplicationHandler;
