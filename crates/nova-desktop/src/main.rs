@@ -232,6 +232,13 @@ fn navigate(
         publish_buttons(app, tab);
         return;
     }
+    // All external navigation crosses the same engine-independent scheme
+    // gate, whether the current renderer is Obscura or a future Servo view.
+    // Internal NovaBrowser routes stay in the trusted browser shell.
+    if let Err(error) = engine_api::external_page_url(target) {
+        report(app, None, format!("Navigation error: {error}"), false);
+        return;
+    }
     report(app, None, format!("Loading {target}"), true);
     let result: Result<(), String> = runtime.block_on(async {
         tab.page
