@@ -19,10 +19,12 @@ session persistence. Do not run two full website renderers simultaneously
 for the same page. The Obscura screenshot pipeline remains the **default**
 until a Windows-verified native replacement is available.
 
-A **feature-gated native Servo child-window embedder** now exists in
-`crates/nova-desktop/src/servo_embed.rs`. The existing Tauri UI remains
-inside the same window; Servo's own event loop, WebView handles and native
-painting are routed beneath the trusted browser chrome. It is opt-in with
+A **feature-gated native Servo rendering integration** now exists. The
+browser-owned adapter in `crates/nova-desktop/src/servo_embed.rs` talks via
+private IPC to a render-only helper in `engines/servo-native/`. The helper
+has its own Cargo workspace because Servo and Obscura/V8 need incompatible
+ICU bindings. Servo's event loop and page compositor are intended to draw
+inside a native child HWND beneath NovaBrowser's trusted chrome. It is opt-in with
 `--features servo-embed` and is **not yet Windows-compiled/accepted**.
 The experimental adapter supports independent WebView handles but still
 requires GPU/IME compatibility and window composition tests.

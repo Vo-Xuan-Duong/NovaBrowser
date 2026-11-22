@@ -1,71 +1,109 @@
-# NovaBrowser native Servo embedding: Windows manual validation
+# NovaBrowser — native Servo renderer integration (Windows)
 
-The **existing NovaBrowser** browser chrome, tab manager, Home, Settings,
-bookmarks, history, session persistence and English/Vietnamese interface are
-kept. `servo-embed` integrates native Servo into the **same window**.
+## Why the browser and rendering engine have independent Cargo graphs
 
-## Implemented behind the Windows-only feature
+NovaBrowser is **one** application. Its current native shell and browser UI
+are still `crates/nova-desktop/`, including Home, Settings, tabs, session
+restore, bookmarks and bilingual UI. Only the site rendering engine is
+replaceable.
 
-- `crates/nova-desktop/src/servo_embed.rs`: Windows child HWND created
-  beneath the Tauri window, owning a dedicated winit event loop, Servo 0.8
-  engine, GPU rendering context and independent WebView handle per tab.
-- `crates/nova-desktop/src/main.rs`: routes navigation, Back/Forward,
-  Reload, Select, Close and URL/title/history through browser-owned commands.
-- `crates/nova-desktop/ui/app.js`: computes the actual local content top,
-  clips trusted WebView2 browser chrome above native Servo webpage pixels,
-  hides the child surface for Home/Settings/bookmark/history panels and
-  disables synthetic JavaScript mouse/keyboard events for Servo.
-- Navigation requests are restricted to HTTP(S), with limited internal
-  `about:` documents permitted by Servo. Local trusted browser routes
-  `nova://home` and `nova://settings` remain in NovaBrowser.
+A direct Servo dependency in the main workspace triggered:
 
-**This code has not been built or run on Windows yet.** Feature APIs,
-native dependencies, GPU child-window compositing and keyboard/IME remain
-verification risks. Default NovaBrowser behavior is not changed.
+```text
+V8/temporal_capi -> icu_calendar ^2.2.1
+Servo/mozjs_sys/icu_capi 2.1.2 -> icu_calendar ~2.1.1
+failed to select a version for icu_calendar
+```
 
-## Local compile and run
+Cargo resolves a workspace lockfile with all members and optional features,
+so `cargo update`, `--no-default-features` or a plain feature-gate does not
+solve this native-library conflict. Keep the engine in its own workspace.
+
+## Files and process boundary
+
+| Path | Purpose |
+| --- | --- |
+| `crates/nova-desktop/` | The actual NovaBrowser executable, UI and local browser profile |
+| `crates/nova-desktop/src/servo_embed.rs` | Rust IPC adapter; contains no Servo crate dependency |
+| `engines/servo-native/Cargo.toml` | Independent Servo 0.8 / SpiderMonkey Cargo workspace |
+| `engines/servo-native/src/main.rs` | Native Windows child HWND, GPU rendering, WebViews and input |
+| `run-nova-servo.cmd` | Builds renderer first, then runs NovaBrowser with the feature |
+| `engines/servo-native/tests/isolation.cjs` | Static lockfile separation and IPC regression test |
+
+The helper accepts tagged JSON commands via its inherited **stdin**:
+`navigate`, `select`, `close`, `back`, `forward`, `reload`,
+`layout` and `shutdown`. It emits prefixed JSON lines via **stdout** for
+`ready`, `fatal`, `location`, `title`, `history`, `error` and browser
+keyboard shortcuts. External pages never receive a Tauri IPC capability.
+
+The child HWND is parented to the NovaBrowser native window. Tauri/WebView2
+still draws the browser's trusted chrome; Servo paints external pages below
+it. The helper is not a second browser or separate GUI product, although it
+is technically another operating-system process.
+
+## Run locally on Windows x64
 
 ```cmd
 git pull origin main
 rustup update stable
+node engines/servo-native/tests/isolation.cjs
 cargo check -p nova-desktop --features servo-embed
-cargo test -p nova-desktop --features servo-embed
+cargo check --manifest-path engines/servo-native/Cargo.toml
+run-nova-servo.cmd
+```
+
+Equivalent manual release commands:
+
+```cmd
+cargo build --manifest-path engines/servo-native/Cargo.toml --release
 cargo run -p nova-desktop --release --features servo-embed
 ```
 
-Compile on Windows 10/11 x64 with Visual Studio C++ Build Tools and Windows
-SDK. Review any Cargo.lock changes. No GitHub Actions.
+`cargo run -p nova-desktop --features servo-embed` by itself expects the
+Servo helper to have already been built. If it cannot find the executable,
+the app reports the expected path. If using a nonstandard Cargo target
+directory, set `NOVA_SERVO_SIDECAR_BIN` accordingly.
 
-For the existing default browser build, simply use `run-nova.cmd`.
+Normal Obscura page-rendering build remains available using:
 
-## Manual acceptance checklist
+```cmd
+run-nova.cmd
+```
 
-1. Start at Home. Confirm full NovaBrowser toolbar, bookmarks, tabs,
-   Settings and internal UI are visible without a child HWND covering them.
-2. Visit `https://example.org/`. Website must appear below the real
-   toolbar in **the same window**, with clickable links and scroll.
-3. Resize, maximize, restore and change display scaling. The native page
-   must never cover Chrome, tabs, window controls, or Settings.
-4. Open/close Home, Settings, history and bookmarks while on an external
-   tab. Local panels must reclaim the full WebView2 UI area.
-5. Open 3 tabs and switch, Back/Forward, Reload and close one. Verify
-   URL, title, history and active-content state remain consistent.
-6. Try Google, Wikipedia, Unicode text, focus, forms, native keyboard,
-   IME, links and blocked privileged `file:`/custom-scheme navigation.
-7. Restart and verify bookmarks, history, language, preferences and saved
-   sessions remain compatible with the existing NovaBrowser profile.
-8. Compare actual complete process-tree memory (PrivateMB/WorkingSetMB)
-   against the normal build at identical pages and tab counts.
+The sidecar may add Servo-specific native dependencies. Use a recent
+Windows C++ toolchain and SDK. Any errors after the resolver stage may be
+distinct API, native library or GPU integration issues; **none have been
+validated by compiling this version on Windows in this session**.
 
-Known unresolved tasks: reliable native IME/accelerators while child HWND
-has focus, downloads/permissions/popups, GPU layer ordering on all Windows
-configurations, site isolation/security auditing and resource optimization.
-The optional build still constructs legacy Obscura page state; it does not
-yet demonstrate low RAM consumption or an entirely Servo-only process.
+## Acceptance checklist
 
-## Reference APIs
+1. Compiler: Cargo resolves both workspaces independently without an ICU
+   conflict; check and build the root and the Servo helper separately.
+2. GUI: Nova Home and Settings remain the original NovaBrowser screens.
+3. Website: a Servo site draws in the same NovaBrowser window below toolbar
+   and tabs without a PNG/frame screenshot bridge.
+4. Geometry: resize/maximize/Windows DPI scaling and bookmarks-bar toggling
+   preserve the child window's bounds and prevent it covering toolbar.
+5. Multiple tabs: switching, close/reopen, URL/title/history, Back/Forward,
+   search and session persistence all behave correctly.
+6. Native input: mouse, wheel, keyboard shortcuts, focus, Unicode and IME
+   work across the child HWND and parent trusted chrome.
+7. Security: remote origins cannot access Tauri commands; privileged
+   schemes, popups, downloads and site permissions have safe handlers.
+8. RAM: sample the **entire process tree**, including the helper, under the
+   same browsing workloads as the default rendering engine.
 
+Current limitations: cross-process Win32 parent-child composition has not
+been verified; focus/IME, GPU rendering and site compatibility remain
+unproven. The initial feature-gated build still initializes legacy
+Obscura tab structures, so it is **not yet optimized for low RAM**.
+No production-readiness or measured memory savings are claimed.
+
+Never run GitHub Actions; compile and test locally.
+
+## Technical references
+
+- https://doc.rust-lang.org/cargo/reference/resolver.html
+- https://doc.rust-lang.org/cargo/reference/workspaces.html
 - https://doc.servo.org/servo/
-- https://doc.servo.org/servo/trait.WebViewDelegate.html
-- https://docs.rs/winit/latest/winit/window/struct.WindowAttributes.html
-- https://v2.tauri.app/reference/rust/tauri/struct.Webview.html
+- https://github.com/servo/servo/blob/main/components/servo/examples/winit_minimal.rs

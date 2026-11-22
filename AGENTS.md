@@ -6,7 +6,11 @@
 > app**. The code in `tools/servo-embed-harness/` is an integration test
 > harness only. Reuse relevant Obscura and Nova modules instead of duplicating
 > working browser features. Browser-owned engine interfaces start at
-> `crates/nova-desktop/src/engine_api.rs`. Read `docs/ENGINE_DECISION.md`.
+> `crates/nova-desktop/src/engine_api.rs`. The Servo native renderer must
+> remain in the separate Cargo workspace at `engines/servo-native/` to
+> avoid incompatible ICU native dependencies from V8 and SpiderMonkey.
+> Never reintroduce Servo as a dependency of the Obscura workspace.
+> Read `docs/ENGINE_DECISION.md`.
 > Do not run GitHub Actions.
 
 Guidance for AI coding agents and contributors working in the Obscura repo.

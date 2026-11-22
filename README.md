@@ -31,38 +31,60 @@ This launches the full NovaBrowser interface from
 
 ## Optional: Servo rendering inside NovaBrowser
 
-An experimental Windows native child-window compositor was added to the
-**same NovaBrowser executable**. It uses Servo's WebView API, not a Servo
-sample application. The HTML/CSS frontend still owns the persistent toolbar,
-Home, Settings and local library. Servo renders external websites beneath
-the chrome, with per-tab WebView handles and native input events.
+Servo's SpiderMonkey and the legacy Obscura V8 dependencies require
+**incompatible ICU native libraries**. Cargo resolves optional dependencies
+for the whole root workspace lockfile, so adding Servo directly to
+`nova-desktop` caused the `icu_calendar` version-selection error.
 
-To build locally (Windows x64, Rust stable, Servo native prerequisites):
+The fix uses **one NovaBrowser application** and one internal render helper:
+
+- `crates/nova-desktop/` is still the **actual browser** with the existing
+  toolbar, tabs, Home, Settings, bookmarks, session data and localization.
+- `engines/servo-native/` builds a small **render-only process** with
+  Servo 0.8, SpiderMonkey and its **own Cargo workspace and lockfile**.
+- `crates/nova-desktop/src/servo_embed.rs` sends navigation, tab lifecycle
+  and layout commands over private standard-input JSON lines. Native Servo
+  page events come back through a private standard-output protocol.
+- The renderer attaches its native child HWND below NovaBrowser's existing
+  browser chrome. It does not provide another browser UI or an HTTP server.
+
+**Recommended Windows local command:**
 
 ```cmd
-cargo check -p nova-desktop --features servo-embed
-cargo test -p nova-desktop --features servo-embed
+git pull origin main
+run-nova-servo.cmd
+```
+
+This first builds the isolated Servo helper, then runs NovaBrowser with
+`servo-embed` enabled. If preferred, run the two commands manually:
+
+```cmd
+cargo build --manifest-path engines/servo-native/Cargo.toml --release
 cargo run -p nova-desktop --release --features servo-embed
 ```
 
-**Unverified:** these commands have not been run successfully on Windows in
-this development session. The opt-in implementation may require changes to
-native integration APIs and GPU child-window compositing. Keyboard/IME,
-download/permission flows, browser process isolation, and resource behavior
-are incomplete. The optional mode still constructs legacy Obscura tab
-objects and has **no demonstrated RAM saving**. Do not use it for sensitive
-browsing.
+**Diagnostics and local checks:**
 
-Relevant source:
-- `crates/nova-desktop/src/servo_embed.rs`: native Servo 0.8 WebView,
-  event loop, per-tab handles, input and direct paint
-- `crates/nova-desktop/src/main.rs`: navigation and tab events, native
-  surface commands, storage integration
-- `crates/nova-desktop/src/engine_api.rs`: browser-owned engine contract
-- `crates/nova-desktop/ui/app.js`: chrome clipping and surface visibility
+```cmd
+node engines/servo-native/tests/isolation.cjs
+cargo check -p nova-desktop --features servo-embed
+cargo check --manifest-path engines/servo-native/Cargo.toml
+```
 
-See [Windows validation](docs/SERVO_NATIVE_EMBED.md) and
-[architecture decision](docs/ENGINE_DECISION.md).
+The initial Servo build may require a modern Rust toolchain, C++ build tools,
+Windows SDK and additional Servo system libraries. For custom target paths,
+set `NOVA_SERVO_SIDECAR_BIN` to the built helper executable.
+
+**Status:** dependency isolation has been implemented and the Node contract
+test passes, but **neither Rust workspace nor the cross-process native child
+window has been compiled/validated here on Windows**. Servo GPU compositing,
+IME, multi-tab interactions, security and RAM still need testing. The
+feature-gated NovaBrowser build currently retains some legacy Obscura
+initialization; it is not yet memory optimized. Do not use the prototype for
+sensitive accounts.
+
+See [Windows-native integration checklist](docs/SERVO_NATIVE_EMBED.md)
+and [engine decision](docs/ENGINE_DECISION.md).
 
 ## Reuse without creating another browser
 

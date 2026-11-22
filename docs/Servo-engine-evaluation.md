@@ -11,9 +11,10 @@ Settings, bookmarks, history, and English/Vietnamese localization.
 - The actual product is launched by `run-nova.cmd` or `cargo nova`.
 - It still renders website content using Obscura's experimental CPU PNG
   frames and a synthetic DOM input adapter.
-- A Windows-only native Servo child-window adapter is now available behind
-  `servo-embed` in the existing NovaBrowser desktop. It is not yet compiled
-  or tested on Windows and is not the default renderer.
+- A Windows-only Servo integration now uses an independent render-only
+  helper under `engines/servo-native/` and an IPC adapter behind
+  `servo-embed`. This avoids the ICU conflict with Obscura/V8. The native
+  child-window integration is not yet compiled or tested on Windows.
 - `crates/nova-desktop/src/engine_api.rs` now defines browser-owned tab
   identifiers, bounds, input events, page notifications and the renderer
   interface to support incremental replacement.
