@@ -413,16 +413,22 @@ impl ApplicationHandler<Event> for Embedder {
                         let _ = self.sender.send(Command::Reload);
                         return;
                     }
-                    if alt && matches!(event.logical_key, WinitKey::Named(NamedKey::ArrowLeft)) {
+                    if alt && matches!(event.logical_key.as_ref(), WinitKey::Named(NamedKey::ArrowLeft)) {
                         let _ = self.sender.send(Command::Back);
                         return;
                     }
-                    if alt && matches!(event.logical_key, WinitKey::Named(NamedKey::ArrowRight)) {
+                    if alt && matches!(event.logical_key.as_ref(), WinitKey::Named(NamedKey::ArrowRight)) {
                         let _ = self.sender.send(Command::Forward);
                         return;
                     }
                 }
-                let key: Key = event.logical_key.to_string().parse().unwrap_or_default();
+                // Winit's Key type is not Display; keep the original text
+                // and named-key variant instead of calling to_string() on it.
+                let key: Key = match event.logical_key.as_ref() {
+                    WinitKey::Character(text) => text.parse().unwrap_or_default(),
+                    WinitKey::Named(named) => format!("{named:?}").parse().unwrap_or_default(),
+                    _ => Key::default(),
+                };
                 let pressed = if event.state == ElementState::Pressed {
                     KeyState::Down
                 } else { KeyState::Up };
