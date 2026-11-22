@@ -1,0 +1,22 @@
+[package]
+name = "nova-servo-native"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94"
+description = "Isolated website-rendering engine helper for NovaBrowser"
+publish = false
+license = "MPL-2.0"
+
+# Separate workspace and lockfile: no V8/Obscura in the engine graph.
+[workspace]
+resolver = "2"
+
+[dependencies]
+servo = "=0.8.0"
+servo-embedder-traits = "=0.8.0"
+winit = { version = "=0.30.13", features = ["rwh_06"] }
+webrender_api = "=0.70.0"
+euclid = "0.22"
+url = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
