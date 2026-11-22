@@ -1,5 +1,6 @@
 mod input;
 mod navigation;
+mod storage;
 mod viewport;
 
 use std::collections::hash_map::DefaultHasher;
@@ -7,17 +8,24 @@ use std::hash::{Hash, Hasher};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use obscura_browser::lifecycle::WaitUntil;
 use obscura_browser::{BrowserContext, Page};
-use slint::{ComponentHandle, Image, Weak};
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use navigation::{normalize_address, NavigationHistory};
+use storage::{Bookmark, BrowserDataStore, BrowserSettings, Visit};
 use viewport::Viewport;
 
-slint::include_modules!();
+const MAX_TABS: usize = 8;
 
 enum Command {
     Navigate(String),
+    NewTab,
+    CloseTab(String),
+    ActivateTab(String),
     Back,
     Forward,
     Reload,
@@ -28,67 +36,121 @@ enum Command {
     Shutdown,
 }
 
-fn report(ui: &Weak<NovaWindow>, address: Option<String>, status: String, loading: bool) {
-    let ui = ui.clone();
-    let _ = slint::invoke_from_event_loop(move || {
-        if let Some(window) = ui.upgrade() {
-            if let Some(address) = address {
-                window.set_address(address.into());
-            }
-            let show_status = status.starts_with("Navigation error:")
-                || status.starts_with("Engine startup failed:")
-                || status.starts_with("Invalid")
-                || status.starts_with("Only ");
-            window.set_show_status(show_status);
-            window.set_status(status.into());
-            window.set_loading(loading);
-        }
-    });
+struct EngineState {
+    commands: mpsc::Sender<Command>,
+    browser_data: Arc<BrowserDataStore>,
 }
 
-fn publish_buttons(ui: &Weak<NovaWindow>, history: &NavigationHistory) {
-    let can_back = history.previous().is_some();
-    let can_forward = history.next().is_some();
-    let ui = ui.clone();
-    let _ = slint::invoke_from_event_loop(move || {
-        if let Some(window) = ui.upgrade() {
-            window.set_can_back(can_back);
-            window.set_can_forward(can_forward);
-        }
-    });
+struct BrowserTab {
+    id: String,
+    title: String,
+    address: String,
+    page: Page,
+    history: NavigationHistory,
+    last_frame: Option<u64>,
 }
 
-// Keep the single visible tab in sync with the document's real title.
-fn publish_tab_title(ui: &Weak<NovaWindow>, page: &mut Page) {
-    let value = page.evaluate("document.title");
-    let title = value.as_str().unwrap_or("").trim();
-    let title = if title.is_empty() {
-        "Untitled page".to_string()
-    } else {
-        title.to_string()
-    };
-    let ui = ui.clone();
-    let _ = slint::invoke_from_event_loop(move || {
-        if let Some(window) = ui.upgrade() {
-            window.set_tab_title(title.into());
+impl BrowserTab {
+    fn new(id: String, context: Arc<BrowserContext>, viewport: Viewport) -> Self {
+        let mut page = Page::new(id.clone(), context);
+        page.set_viewport(viewport.css_size());
+        Self {
+            id,
+            title: "New tab".to_string(),
+            address: String::new(),
+            page,
+            history: NavigationHistory::default(),
+            last_frame: None,
         }
-    });
+    }
 }
 
-fn publish_frame(ui: &Weak<NovaWindow>, png: Vec<u8>) {
-    let ui = ui.clone();
-    let _ = slint::invoke_from_event_loop(move || {
-        if let Some(window) = ui.upgrade() {
-            if let Ok(image) = Image::load_from_data(&png, Some("png")) {
-                window.set_page_image(image);
-            }
-        }
-    });
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StatusUpdate {
+    address: Option<String>,
+    message: String,
+    loading: bool,
+    show_status: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HistoryUpdate {
+    can_back: bool,
+    can_forward: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TabInfo {
+    id: String,
+    title: String,
+    address: String,
+    active: bool,
+    closable: bool,
+}
+
+fn report(app: &AppHandle, address: Option<String>, message: String, loading: bool) {
+    let show_status = message.starts_with("Navigation error:")
+        || message.starts_with("Engine startup failed:")
+        || message.starts_with("Invalid")
+        || message.starts_with("Only ")
+        || message.starts_with("Too many tabs");
+    let _ = app.emit(
+        "browser-status",
+        StatusUpdate {
+            address,
+            message,
+            loading,
+            show_status,
+        },
+    );
+}
+
+fn publish_tab_list(app: &AppHandle, tabs: &[BrowserTab], active_id: &str) {
+    let closable = tabs.len() > 1;
+    let items: Vec<TabInfo> = tabs
+        .iter()
+        .map(|tab| TabInfo {
+            id: tab.id.clone(),
+            title: tab.title.clone(),
+            address: tab.address.clone(),
+            active: tab.id == active_id,
+            closable,
+        })
+        .collect();
+    let _ = app.emit("browser-tabs", items);
+}
+
+fn publish_buttons(app: &AppHandle, tab: &BrowserTab) {
+    let _ = app.emit(
+        "browser-history",
+        HistoryUpdate {
+            can_back: tab.history.previous().is_some(),
+            can_forward: tab.history.next().is_some(),
+        },
+    );
+}
+
+fn document_title(page: &mut Page) -> String {
+    let title = page.evaluate("document.title");
+    title.as_str().unwrap_or("").trim().to_string()
+}
+
+fn publish_tab_title(app: &AppHandle, title: &str) {
+    let title = if title.is_empty() { "Untitled page" } else { title };
+    let _ = app.emit("browser-title", title.to_string());
+}
+
+fn publish_frame(app: &AppHandle, png: Vec<u8>) {
+    let _ = app.emit("browser-frame", BASE64.encode(png));
 }
 
 /// Frame comparisons avoid redundant updates on visually static pages.
-fn capture(page: &Page, viewport: Viewport, ui: &Weak<NovaWindow>, hash: &mut Option<u64>) {
+fn capture(page: &Page, viewport: Viewport, app: &AppHandle, hash: &mut Option<u64>) {
     let Some(png) = page.screenshot(viewport.css_size()) else {
+        let _ = app.emit("browser-frame", String::new());
         return;
     };
     let mut hasher = DefaultHasher::new();
@@ -98,232 +160,439 @@ fn capture(page: &Page, viewport: Viewport, ui: &Weak<NovaWindow>, hash: &mut Op
         return;
     }
     *hash = Some(fingerprint);
-    publish_frame(ui, png);
-}
-
-fn loaded_title(page: &mut Page) -> String {
-    let title = page.evaluate("document.title");
-    let title = title.as_str().unwrap_or("").trim();
-    if title.is_empty() {
-        "Page loaded".to_string()
-    } else {
-        format!("Page loaded: {title}")
-    }
+    publish_frame(app, png);
 }
 
 fn navigate(
-    page: &mut Page,
+    tab: &mut BrowserTab,
     runtime: &tokio::runtime::Runtime,
     viewport: Viewport,
-    ui: &Weak<NovaWindow>,
-    history: &mut NavigationHistory,
-    last_frame: &mut Option<u64>,
+    app: &AppHandle,
+    browser_data: &BrowserDataStore,
     target: &str,
     history_index: Option<usize>,
 ) {
-    report(ui, None, format!("Loading {target}"), true);
-
+    report(app, None, format!("Loading {target}"), true);
     let result: Result<(), String> = runtime.block_on(async {
-        page.navigate_with_wait(target, WaitUntil::Load)
+        tab.page
+            .navigate_with_wait(target, WaitUntil::Load)
             .await
-            .map_err(|e| e.to_string())?;
-        page.settle(180).await;
-        page.prepare_screenshot_resources(300).await;
+            .map_err(|error| error.to_string())?;
+        tab.page.settle(180).await;
+        tab.page.prepare_screenshot_resources(300).await;
         Ok(())
     });
 
     match result {
         Ok(()) => {
-            let url = page.url_string();
+            let url = tab.page.url_string();
+            let title = document_title(&mut tab.page);
             if let Some(index) = history_index {
-                history.select(index);
+                tab.history.select(index);
             } else {
-                history.record(url.clone());
+                tab.history.record(url.clone());
             }
-            *last_frame = None;
-            report(ui, Some(url), loaded_title(page), false);
-            publish_tab_title(ui, page);
-            publish_buttons(ui, history);
-            capture(page, viewport, ui, last_frame);
+            tab.address = url.clone();
+            tab.title = if title.is_empty() { "Untitled page".into() } else { title.clone() };
+            tab.last_frame = None;
+            let _ = browser_data.record_visit(title.clone(), url.clone());
+            let message = if title.is_empty() {
+                "Page loaded".to_string()
+            } else {
+                format!("Page loaded: {title}")
+            };
+            report(app, Some(url), message, false);
+            publish_tab_title(app, &title);
+            publish_buttons(app, tab);
+            capture(&tab.page, viewport, app, &mut tab.last_frame);
         }
-        Err(e) => {
-            report(ui, None, format!("Navigation error: {e}"), false);
-        }
+        Err(error) => report(app, None, format!("Navigation error: {error}"), false),
     }
 }
 
 /// Observe same-document navigation where the engine has updated its URL.
-fn sync_history(page: &mut Page, ui: &Weak<NovaWindow>, history: &mut NavigationHistory) {
-    let url = page.url_string();
+fn sync_history(tab: &mut BrowserTab, app: &AppHandle, browser_data: &BrowserDataStore) {
+    let url = tab.page.url_string();
     if (url.starts_with("https://") || url.starts_with("http://"))
-        && history.current() != Some(url.as_str())
+        && tab.history.current() != Some(url.as_str())
     {
-        history.record(url.clone());
-        report(ui, Some(url), loaded_title(page), false);
-        publish_tab_title(ui, page);
-        publish_buttons(ui, history);
+        tab.history.record(url.clone());
+        let title = document_title(&mut tab.page);
+        tab.address = url.clone();
+        tab.title = if title.is_empty() { "Untitled page".into() } else { title.clone() };
+        let _ = browser_data.record_visit(title.clone(), url.clone());
+        let message = if title.is_empty() {
+            "Page loaded".to_string()
+        } else {
+            format!("Page loaded: {title}")
+        };
+        report(app, Some(url), message, false);
+        publish_tab_title(app, &title);
+        publish_buttons(app, tab);
     }
 }
 
-fn engine_thread(ui: Weak<NovaWindow>, commands: mpsc::Receiver<Command>) {
+fn publish_active_tab(app: &AppHandle, tabs: &mut [BrowserTab], active_id: &str, viewport: Viewport) {
+    publish_tab_list(app, tabs, active_id);
+    let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) else {
+        return;
+    };
+    report(
+        app,
+        if tab.address.is_empty() { None } else { Some(tab.address.clone()) },
+        if tab.address.is_empty() { "New tab".into() } else { tab.title.clone() },
+        false,
+    );
+    publish_tab_title(app, &tab.title);
+    publish_buttons(app, tab);
+    tab.last_frame = None;
+    capture(&tab.page, viewport, app, &mut tab.last_frame);
+}
+
+fn engine_thread(
+    app: AppHandle,
+    browser_data: Arc<BrowserDataStore>,
+    commands: mpsc::Receiver<Command>,
+) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
     {
         Ok(runtime) => runtime,
-        Err(e) => {
-            report(&ui, None, format!("Engine startup failed: {e}"), false);
+        Err(error) => {
+            report(&app, None, format!("Engine startup failed: {error}"), false);
             return;
         }
     };
 
-    // V8 and Page stay on this thread. Network / private address protections
-    // remain at their engine defaults; desktop UI does not grant exceptions.
+    // All page isolates stay on this thread. Tabs share cookies and the HTTP
+    // client through BrowserContext while keeping their DOM and JS realm apart.
     let context = Arc::new(BrowserContext::new("nova-default".to_owned()));
-    let mut page = Page::new("nova-first-tab".to_owned(), context);
     let mut viewport = Viewport::DEFAULT;
-    page.set_viewport(viewport.css_size());
-
-    let mut history = NavigationHistory::default();
-    let mut last_frame = None;
+    let first_tab = BrowserTab::new("nova-tab-1".into(), context.clone(), viewport);
+    let mut tabs = vec![first_tab];
+    let mut active_id = "nova-tab-1".to_string();
+    let mut next_tab_id = 2_u64;
+    publish_tab_list(&app, &tabs, &active_id);
 
     loop {
         match commands.recv_timeout(Duration::from_millis(500)) {
             Ok(Command::Navigate(raw)) => match normalize_address(&raw) {
-                Ok(url) => navigate(
-                    &mut page, &runtime, viewport, &ui, &mut history,
-                    &mut last_frame, &url, None,
-                ),
-                Err(error) => report(&ui, None, error.to_string(), false),
+                Ok(url) => {
+                    if let Some(index) = tabs.iter().position(|tab| tab.id == active_id) {
+                        publish_tab_list(&app, &tabs, &active_id);
+                        navigate(&mut tabs[index], &runtime, viewport, &app, &browser_data, &url, None);
+                        publish_tab_list(&app, &tabs, &active_id);
+                    }
+                }
+                Err(error) => report(&app, None, error.to_string(), false),
             },
-            Ok(Command::Back) => {
-                if let Some((index, url)) = history.previous() {
+            Ok(Command::NewTab) => {
+                if tabs.len() >= MAX_TABS {
+                    report(&app, None, format!("Too many tabs (maximum {MAX_TABS})"), false);
+                    continue;
+                }
+                let id = format!("nova-tab-{next_tab_id}");
+                next_tab_id += 1;
+                tabs.push(BrowserTab::new(id.clone(), context.clone(), viewport));
+                active_id = id;
+                publish_active_tab(&app, &mut tabs, &active_id, viewport);
+                let homepage = browser_data.settings().homepage;
+                if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
                     navigate(
-                        &mut page, &runtime, viewport, &ui, &mut history,
-                        &mut last_frame, &url, Some(index),
+                        tab,
+                        &runtime,
+                        viewport,
+                        &app,
+                        &browser_data,
+                        &homepage,
+                        None,
                     );
+                }
+                publish_tab_list(&app, &tabs, &active_id);
+            }
+            Ok(Command::CloseTab(id)) => {
+                if tabs.len() > 1 {
+                    if let Some(closing_index) = tabs.iter().position(|tab| tab.id == id) {
+                        let old_active_index = tabs.iter().position(|tab| tab.id == active_id).unwrap_or(0);
+                        let closing_active = id == active_id;
+                        let closed_tab = tabs.remove(closing_index);
+                        runtime.block_on(async { drop(closed_tab) });
+                        if closing_active {
+                            let next_index = old_active_index.saturating_sub(1).min(tabs.len() - 1);
+                            active_id = tabs[next_index].id.clone();
+                            publish_active_tab(&app, &mut tabs, &active_id, viewport);
+                        } else {
+                            publish_tab_list(&app, &tabs, &active_id);
+                        }
+                    }
+                }
+            }
+            Ok(Command::ActivateTab(id)) => {
+                if tabs.iter().any(|tab| tab.id == id) && active_id != id {
+                    active_id = id;
+                    publish_active_tab(&app, &mut tabs, &active_id, viewport);
+                }
+            }
+            Ok(Command::Back) => {
+                if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
+                    if let Some((index, url)) = tab.history.previous() {
+                        navigate(tab, &runtime, viewport, &app, &browser_data, &url, Some(index));
+                        publish_tab_list(&app, &tabs, &active_id);
+                    }
                 }
             }
             Ok(Command::Forward) => {
-                if let Some((index, url)) = history.next() {
-                    navigate(
-                        &mut page, &runtime, viewport, &ui, &mut history,
-                        &mut last_frame, &url, Some(index),
-                    );
+                if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
+                    if let Some((index, url)) = tab.history.next() {
+                        navigate(tab, &runtime, viewport, &app, &browser_data, &url, Some(index));
+                        publish_tab_list(&app, &tabs, &active_id);
+                    }
                 }
             }
             Ok(Command::Reload) => {
-                if let Some(url) = history.current().map(str::to_owned) {
-                    navigate(
-                        &mut page, &runtime, viewport, &ui, &mut history,
-                        &mut last_frame, &url, None,
-                    );
+                if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
+                    if let Some(url) = tab.history.current().map(str::to_owned) {
+                        navigate(tab, &runtime, viewport, &app, &browser_data, &url, None);
+                        publish_tab_list(&app, &tabs, &active_id);
+                    }
                 }
             }
             Ok(Command::Resize(width, height)) => {
                 if let Some(next) = Viewport::from_window(width, height) {
-                    if next != viewport {
+                    if next.width != viewport.width || next.height != viewport.height {
                         viewport = next;
-                        page.set_viewport(viewport.css_size());
-                        last_frame = None;
-                        if history.current().is_some() {
-                            capture(&page, viewport, &ui, &mut last_frame);
+                        for tab in &mut tabs {
+                            tab.page.set_viewport(next.css_size());
+                            tab.last_frame = None;
+                        }
+                        if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
+                            capture(&tab.page, next, &app, &mut tab.last_frame);
                         }
                     }
                 }
             }
             Ok(Command::Click(x, y)) => {
-                if history.current().is_some() {
-                    input::click(&mut page, viewport, x, y);
-                    runtime.block_on(page.settle(60));
-                    sync_history(&mut page, &ui, &mut history);
-                    capture(&page, viewport, &ui, &mut last_frame);
+                if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
+                    if !tab.address.is_empty() {
+                        input::click(&mut tab.page, viewport, x, y);
+                        runtime.block_on(tab.page.settle(60));
+                        sync_history(tab, &app, &browser_data);
+                        capture(&tab.page, viewport, &app, &mut tab.last_frame);
+                        publish_tab_list(&app, &tabs, &active_id);
+                    }
                 }
             }
             Ok(Command::Scroll(x, y, dx, dy)) => {
-                if history.current().is_some() {
-                    input::scroll(&mut page, viewport, x, y, dx, dy);
-                    runtime.block_on(page.settle(40));
-                    capture(&page, viewport, &ui, &mut last_frame);
+                if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
+                    if !tab.address.is_empty() {
+                        input::scroll(&mut tab.page, viewport, x, y, dx, dy);
+                        runtime.block_on(tab.page.settle(40));
+                        capture(&tab.page, viewport, &app, &mut tab.last_frame);
+                    }
                 }
             }
             Ok(Command::Type(key)) => {
-                if history.current().is_some() {
-                    input::key(&mut page, &key);
-                    runtime.block_on(page.settle(40));
-                    sync_history(&mut page, &ui, &mut history);
-                    capture(&page, viewport, &ui, &mut last_frame);
+                if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
+                    if !tab.address.is_empty() {
+                        input::key(&mut tab.page, &key);
+                        runtime.block_on(tab.page.settle(40));
+                        sync_history(tab, &app, &browser_data);
+                        capture(&tab.page, viewport, &app, &mut tab.last_frame);
+                        publish_tab_list(&app, &tabs, &active_id);
+                    }
                 }
             }
             Ok(Command::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                if history.current().is_some() {
-                    runtime.block_on(async {
-                        page.settle(50).await;
-                        page.prepare_screenshot_resources(75).await;
-                    });
-                    sync_history(&mut page, &ui, &mut history);
-                    capture(&page, viewport, &ui, &mut last_frame);
+                if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
+                    if !tab.address.is_empty() {
+                        runtime.block_on(async {
+                            tab.page.settle(50).await;
+                            tab.page.prepare_screenshot_resources(75).await;
+                        });
+                        sync_history(tab, &app, &browser_data);
+                        capture(&tab.page, viewport, &app, &mut tab.last_frame);
+                        publish_tab_list(&app, &tabs, &active_id);
+                    }
                 }
             }
         }
     }
+
+    // Page teardown aborts document-owned background loads. Keep that work
+    // inside Tokio's entered context so dropping a tab never loses its reactor.
+    runtime.block_on(async move { drop(tabs) });
+}
+
+fn send_command(state: &State<'_, EngineState>, command: Command) -> Result<(), String> {
+    state
+        .commands
+        .send(command)
+        .map_err(|error| format!("Browser engine stopped: {error}"))
+}
+
+#[tauri::command]
+fn browser_navigate(state: State<'_, EngineState>, address: String) -> Result<(), String> {
+    send_command(&state, Command::Navigate(address))
+}
+
+#[tauri::command]
+fn browser_new_tab(state: State<'_, EngineState>) -> Result<(), String> {
+    send_command(&state, Command::NewTab)
+}
+
+#[tauri::command]
+fn browser_close_tab(state: State<'_, EngineState>, tab_id: String) -> Result<(), String> {
+    send_command(&state, Command::CloseTab(tab_id))
+}
+
+#[tauri::command]
+fn browser_activate_tab(state: State<'_, EngineState>, tab_id: String) -> Result<(), String> {
+    send_command(&state, Command::ActivateTab(tab_id))
+}
+
+#[tauri::command]
+fn browser_back(state: State<'_, EngineState>) -> Result<(), String> {
+    send_command(&state, Command::Back)
+}
+
+#[tauri::command]
+fn browser_forward(state: State<'_, EngineState>) -> Result<(), String> {
+    send_command(&state, Command::Forward)
+}
+
+#[tauri::command]
+fn browser_reload(state: State<'_, EngineState>) -> Result<(), String> {
+    send_command(&state, Command::Reload)
+}
+
+#[tauri::command]
+fn browser_resize(state: State<'_, EngineState>, width: f32, height: f32) -> Result<(), String> {
+    send_command(&state, Command::Resize(width, height))
+}
+
+#[tauri::command]
+fn browser_click(state: State<'_, EngineState>, x: f32, y: f32) -> Result<(), String> {
+    send_command(&state, Command::Click(x, y))
+}
+
+#[tauri::command]
+fn browser_scroll(
+    state: State<'_, EngineState>,
+    x: f32,
+    y: f32,
+    dx: f32,
+    dy: f32,
+) -> Result<(), String> {
+    send_command(&state, Command::Scroll(x, y, dx, dy))
+}
+
+#[tauri::command]
+fn browser_type(state: State<'_, EngineState>, key: String) -> Result<(), String> {
+    send_command(&state, Command::Type(key))
+}
+
+#[tauri::command]
+fn browser_toggle_bookmark(
+    state: State<'_, EngineState>,
+    title: String,
+    url: String,
+) -> Result<bool, String> {
+    state.browser_data.toggle_bookmark(title, url)
+}
+
+#[tauri::command]
+fn browser_is_bookmarked(state: State<'_, EngineState>, url: String) -> bool {
+    state.browser_data.is_bookmarked(&url)
+}
+
+#[tauri::command]
+fn browser_get_bookmarks(state: State<'_, EngineState>) -> Vec<Bookmark> {
+    state.browser_data.bookmarks()
+}
+
+#[tauri::command]
+fn browser_remove_bookmark(state: State<'_, EngineState>, url: String) -> Result<(), String> {
+    state.browser_data.remove_bookmark(&url)
+}
+
+#[tauri::command]
+fn browser_get_history(state: State<'_, EngineState>) -> Vec<Visit> {
+    state.browser_data.history()
+}
+
+#[tauri::command]
+fn browser_clear_history(state: State<'_, EngineState>) -> Result<(), String> {
+    state.browser_data.clear_history()
+}
+
+#[tauri::command]
+fn browser_get_settings(state: State<'_, EngineState>) -> BrowserSettings {
+    state.browser_data.settings()
+}
+
+#[tauri::command]
+fn browser_save_settings(
+    state: State<'_, EngineState>,
+    theme: String,
+    homepage: String,
+) -> Result<BrowserSettings, String> {
+    if theme != "light" && theme != "dark" {
+        return Err("Choose either the light or dark appearance".to_string());
+    }
+    let homepage = normalize_address(&homepage).map_err(|error| error.to_string())?;
+    let settings = BrowserSettings { theme, homepage };
+    state.browser_data.save_settings(settings.clone())?;
+    Ok(settings)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let window = NovaWindow::new()?;
-    let (tx, rx) = mpsc::channel();
+    tauri::Builder::default()
+        .setup(|app| {
+            let (sender, receiver) = mpsc::channel();
+            let data_path = app.path().app_local_data_dir()?.join("browser-data.json");
+            let browser_data = Arc::new(BrowserDataStore::load(data_path));
+            app.manage(EngineState {
+                commands: sender,
+                browser_data: browser_data.clone(),
+            });
 
-    let engine = std::thread::Builder::new()
-        .name("nova-engine".into())
-        .stack_size(256 * 1024 * 1024)
-        .spawn({
-            let ui = window.as_weak();
-            move || engine_thread(ui, rx)
-        })?;
-
-    let sender = tx.clone();
-    window.on_navigate(move |url| {
-        let _ = sender.send(Command::Navigate(url.to_string()));
-    });
-    let sender = tx.clone();
-    window.on_back(move || { let _ = sender.send(Command::Back); });
-    let sender = tx.clone();
-    window.on_forward(move || { let _ = sender.send(Command::Forward); });
-    let sender = tx.clone();
-    window.on_reload(move || { let _ = sender.send(Command::Reload); });
-    let sender = tx.clone();
-    window.on_viewport_resized(move |width, height| {
-        let _ = sender.send(Command::Resize(width, height));
-    });
-    let sender = tx.clone();
-    window.on_page_click(move |x, y| {
-        let _ = sender.send(Command::Click(x, y));
-    });
-    let sender = tx.clone();
-    window.on_page_scroll(move |x, y, dx, dy| {
-        let _ = sender.send(Command::Scroll(x, y, dx, dy));
-    });
-    let sender = tx.clone();
-    window.on_page_key(move |key| {
-        let _ = sender.send(Command::Type(key.to_string()));
-    });
-
-    let _ = tx.send(Command::Resize(
-        window.get_viewport_width(),
-        window.get_viewport_height(),
-    ));
-    let _ = tx.send(Command::Navigate("https://example.com".to_string()));
-
-    let outcome = window.run();
-    let _ = tx.send(Command::Shutdown);
-
-    // In this prototype a blocked navigation should not freeze application
-    // shutdown. A finished engine thread can be reaped; a busy one is detached
-    // and terminated when the process exits.
-    if engine.is_finished() {
-        let _ = engine.join();
-    }
-    outcome?;
+            let engine_app = app.handle().clone();
+            std::thread::Builder::new()
+                .name("nova-engine".into())
+                .stack_size(256 * 1024 * 1024)
+                .spawn(move || engine_thread(engine_app, browser_data, receiver))?;
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            browser_navigate,
+            browser_new_tab,
+            browser_close_tab,
+            browser_activate_tab,
+            browser_back,
+            browser_forward,
+            browser_reload,
+            browser_resize,
+            browser_click,
+            browser_scroll,
+            browser_type,
+            browser_toggle_bookmark,
+            browser_is_bookmarked,
+            browser_get_bookmarks,
+            browser_remove_bookmark,
+            browser_get_history,
+            browser_clear_history,
+            browser_get_settings,
+            browser_save_settings
+        ])
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                if let Some(state) = window.app_handle().try_state::<EngineState>() {
+                    let _ = state.commands.send(Command::Shutdown);
+                }
+            }
+        })
+        .run(tauri::generate_context!())?;
     Ok(())
 }

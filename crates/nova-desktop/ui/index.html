@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>NovaBrowser</title>
+    <link rel="stylesheet" href="app.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <main class="browser-window">
+      <header class="tab-strip" id="titlebar">
+        <div class="tab-list" id="tab-list" role="tablist" aria-label="Open tabs"></div>
+        <button class="new-tab-button" id="new-tab" aria-label="New tab" title="New tab">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+        </button>
+        <div class="drag-space" aria-hidden="true"></div>
+        <div class="window-controls" aria-label="Window controls">
+          <button class="window-control" id="minimize" aria-label="Minimize" title="Minimize">
+            <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8" /></svg>
+          </button>
+          <button class="window-control" id="maximize" aria-label="Maximize" title="Maximize">
+            <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2.25" y="2.25" width="7.5" height="7.5" /></svg>
+          </button>
+          <button class="window-control close-control" id="close" aria-label="Close" title="Close">
+            <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2.5 2.5 7 7m0-7-7 7" /></svg>
+          </button>
+        </div>
+      </header>
+
+      <nav class="toolbar" aria-label="Browser controls">
+        <div class="navigation-actions">
+          <button class="toolbar-button" id="back" aria-label="Back" title="Back" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 5-7 7 7 7M8 12h12" /></svg>
+          </button>
+          <button class="toolbar-button" id="forward" aria-label="Forward" title="Forward" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 5 7 7-7 7M16 12H4" /></svg>
+          </button>
+          <button class="toolbar-button" id="reload" aria-label="Reload" title="Reload">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4.8 9a7.5 7.5 0 0 1 13-2L20 12M4 17v-5h5m10.2 3a7.5 7.5 0 0 1-13 2L4 12" /></svg>
+          </button>
+        </div>
+
+        <form class="omnibox" id="address-form" autocomplete="off">
+          <span class="site-controls" aria-hidden="true">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16M9 5v4m6 6v4" /></svg>
+          </span>
+          <input id="address" type="text" spellcheck="false" aria-label="Search or type a URL" placeholder="Search or type a URL" value="https://example.com/" />
+          <button class="bookmark-button" id="bookmark-current" type="button" aria-label="Bookmark this page" title="Bookmark this page">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z" /></svg>
+          </button>
+        </form>
+        <button class="toolbar-button library-button" id="show-bookmarks" aria-label="Show bookmarks" title="Bookmarks">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h7l2 2h8v10.8a1.2 1.2 0 0 1-1.2 1.2H4.7a1.2 1.2 0 0 1-1.2-1.2V6.5Z" /><path d="M3.5 9h17" /></svg>
+        </button>
+        <button class="toolbar-button library-button" id="show-history" aria-label="Show browsing history" title="History">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 11a8.5 8.5 0 1 1 2.4 6M3.5 5v6h6M12 7v5l3.5 2" /></svg>
+        </button>
+        <button class="toolbar-button library-button" id="show-settings" aria-label="Settings" title="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a8 8 0 0 1-1.5.9l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.6-.9l-1.7.7-1.4-2.4 1.4-1.1a7 7 0 0 1 0-1.9l-1.4-1.1 1.4-2.4 1.7.7a8 8 0 0 1 1.6-.9l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.5.9l1.7-.7 1.4 2.4-1.4 1.1a7 7 0 0 1-.1 1.8Z" transform="translate(-1 -1) scale(1.08)" /></svg>
+        </button>
+      </nav>
+
+      <div class="loading-track"><div class="loading-indicator" id="loading-indicator"></div></div>
+
+      <section class="page-area" id="page-area" tabindex="0" aria-label="Web page">
+        <img id="page-frame" alt="Rendered web page" draggable="false" />
+        <div class="status-bubble" id="status-bubble" role="status" aria-live="polite">
+          <span class="status-dot"></span>
+          <span class="status-message" id="status-message">Starting browser engine</span>
+        </div>
+      </section>
+
+      <aside class="library-panel" id="library-panel" aria-label="Browser library" hidden>
+        <div class="library-heading">
+          <div>
+            <span class="library-eyebrow">YOUR LIBRARY</span>
+            <h2 id="library-title">Bookmarks</h2>
+          </div>
+          <button class="panel-close" id="close-library" aria-label="Close library">×</button>
+        </div>
+        <div class="library-tabs" role="tablist">
+          <button class="library-tab" id="history-tab" role="tab">History</button>
+          <button class="library-tab" id="bookmarks-tab" role="tab">Bookmarks</button>
+        </div>
+        <div class="library-list" id="library-list"></div>
+        <div class="library-footer" id="history-footer">
+          <button class="text-button" id="clear-history">Clear browsing history</button>
+        </div>
+      </aside>
+
+      <aside class="settings-panel" id="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+        <div class="library-heading">
+          <div>
+            <span class="library-eyebrow">PREFERENCES</span>
+            <h2 id="settings-title">Settings</h2>
+          </div>
+          <button class="panel-close" id="close-settings" aria-label="Close settings">×</button>
+        </div>
+        <form class="settings-form" id="settings-form">
+          <label class="settings-field" for="theme-setting">
+            <span>Appearance</span>
+            <select id="theme-setting">
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+          <p class="settings-help">Choose the color theme for NovaBrowser.</p>
+          <label class="settings-field" for="homepage-setting">
+            <span>Homepage and new tabs</span>
+            <input id="homepage-setting" type="text" autocomplete="url" spellcheck="false" placeholder="https://example.com/" />
+          </label>
+          <p class="settings-help">Enter a website or a search query.</p>
+          <div class="settings-error" id="settings-error" role="alert" hidden></div>
+          <div class="settings-actions">
+            <button class="settings-cancel" id="cancel-settings" type="button">Cancel</button>
+            <button class="settings-save" type="submit">Save settings</button>
+          </div>
+        </form>
+      </aside>
+    </main>
+  </body>
+</html>
