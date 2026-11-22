@@ -54,6 +54,17 @@ for (const event of ["ready", "fatal", "location", "title", "history",
   assert.ok(renderer.includes('"' + event + '"'),
     "Renderer must emit " + event);
 }
+// Servo 0.8.0 has explicit one-step traversal, and WheelEvent takes exactly
+// (WheelDelta, WebViewPoint); guard against API drift from newer examples.
+assert.match(renderer, /page\.go_back\(1\);/,
+  "Servo 0.8 back navigation requires a traversal amount");
+assert.match(renderer, /page\.go_forward\(1\);/,
+  "Servo 0.8 forward navigation requires a traversal amount");
+assert.match(renderer, /WheelDelta \{ x, y, z: 0\.0, mode \},\s*state\.cursor\.into\(\),\s*\)\)/,
+  "Servo 0.8 WheelEvent::new accepts delta and point only");
+assert.doesNotMatch(renderer, /\bModifiers::default\(\)/,
+  "Servo 0.8 WheelEvent no longer accepts a third modifiers argument");
+
 assert.match(launcher, /engines\\servo-native\\Cargo\.toml/);
 assert.match(launcher, /cargo run -p nova-desktop --release --features servo-embed/);
 console.log("NovaBrowser Servo/Obscura Cargo isolation and IPC contract checks passed");
