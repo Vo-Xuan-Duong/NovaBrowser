@@ -73,6 +73,28 @@
 
       <section class="page-area" id="page-area" tabindex="0" aria-label="Web page">
         <img id="page-frame" alt="Rendered web page" draggable="false" />
+        <section class="search-blocked" id="search-blocked" aria-labelledby="search-blocked-title" hidden>
+          <div class="search-blocked-card">
+            <div class="search-blocked-symbol" aria-hidden="true">
+              <span class="icon-slot" data-icon="shield-check"></span>
+            </div>
+            <h1 id="search-blocked-title">Google search needs verification</h1>
+            <p>Google returned an unusual-traffic page for this search. NovaBrowser cannot automatically complete Google's verification. You can view Google's response or choose another search provider.</p>
+            <div class="search-blocked-query">
+              <span class="search-blocked-query-label">Your search</span>
+              <strong id="search-blocked-query"></strong>
+            </div>
+            <div class="search-blocked-buttons">
+              <button type="button" id="search-blocked-bing" class="search-blocked-primary">Search with Bing</button>
+              <button type="button" id="search-blocked-duckduckgo" class="search-blocked-secondary">Search with DuckDuckGo</button>
+            </div>
+            <div class="search-blocked-actions">
+              <button type="button" id="search-blocked-google">Retry Google</button>
+              <button type="button" id="search-blocked-view">View Google's response</button>
+            </div>
+            <p class="search-blocked-note">Your default search engine will not change. A query is sent to another provider only when you choose it.</p>
+          </div>
+        </section>
         <div class="status-bubble" id="status-bubble" role="status" aria-live="polite">
           <span class="status-dot"></span>
           <span class="status-message" id="status-message">Starting browser engine</span>

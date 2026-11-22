@@ -16,13 +16,15 @@ use obscura_browser::{BrowserContext, Page};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use navigation::{normalize_address_with_search, NavigationHistory};
+use navigation::{blocked_google_search_query, build_search_url, normalize_address_with_search, NavigationHistory};
 use storage::{Bookmark, BrowserDataStore, BrowserSession, BrowserSettings, SessionTab, Visit, MAX_TABS};
 use viewport::Viewport;
 
 enum Command {
     FrontendReady,
     Navigate(String),
+    SearchWithProvider(String, String),
+    DismissSearchBlock,
     NewTab,
     ReopenTab,
     CloseTab(String),
@@ -50,6 +52,7 @@ struct BrowserTab {
     history: NavigationHistory,
     last_frame: Option<u64>,
     restore_url: Option<String>,
+    blocked_search: Option<String>,
 }
 
 impl BrowserTab {
@@ -64,6 +67,7 @@ impl BrowserTab {
             history: NavigationHistory::default(),
             last_frame: None,
             restore_url: None,
+            blocked_search: None,
         }
     }
 
@@ -150,6 +154,12 @@ fn publish_tab_list(app: &AppHandle, tabs: &[BrowserTab], active_id: &str) {
     let _ = app.emit("browser-tabs", items);
 }
 
+fn publish_search_blocked(app: &AppHandle, tab: &BrowserTab) {
+    // Only the search query is sent to the trusted UI. A null payload clears
+    // the notice; no challenge tokens, IPs or cookies are exposed.
+    let _ = app.emit("browser-search-blocked", tab.blocked_search.clone());
+}
+
 fn publish_buttons(app: &AppHandle, tab: &BrowserTab) {
     let _ = app.emit(
         "browser-history",
@@ -199,6 +209,8 @@ fn navigate(
     target: &str,
     history_index: Option<usize>,
 ) {
+    tab.blocked_search = None;
+    publish_search_blocked(app, tab);
     // Internal Home is part of the trusted Tauri chrome, never a network page
     // or JavaScript payload passed to the Obscura engine.
     if target == "nova://home" {
@@ -232,26 +244,41 @@ fn navigate(
         Ok(()) => {
             let url = tab.page.url_string();
             let title = document_title(&mut tab.page);
+            let blocked_query = blocked_google_search_query(target, &url);
             if let Some(index) = history_index {
                 tab.history.select(index);
             } else {
                 tab.history.record(url.clone());
             }
             tab.address = url.clone();
-            tab.title = if title.is_empty() { "Untitled page".into() } else { title.clone() };
+            tab.title = if blocked_query.is_some() {
+                "Google search unavailable".to_string()
+            } else if title.is_empty() {
+                "Untitled page".into()
+            } else {
+                title.clone()
+            };
+            tab.blocked_search = blocked_query;
             tab.last_frame = None;
-            if browser_data.settings().save_history {
+            if tab.blocked_search.is_none() && browser_data.settings().save_history {
                 let _ = browser_data.record_visit(title.clone(), url.clone());
             }
-            let message = if title.is_empty() {
+            let message = if tab.blocked_search.is_some() {
+                "Google requested traffic verification".to_string()
+            } else if title.is_empty() {
                 "Page loaded".to_string()
             } else {
                 format!("Page loaded: {title}")
             };
             report(app, Some(url), message, false);
-            publish_tab_title(app, &title);
+            publish_tab_title(app, &tab.title);
             publish_buttons(app, tab);
-            capture(&tab.page, viewport, app, &mut tab.last_frame);
+            publish_search_blocked(app, tab);
+            if tab.blocked_search.is_some() {
+                let _ = app.emit("browser-frame", String::new());
+            } else {
+                capture(&tab.page, viewport, app, &mut tab.last_frame);
+            }
         }
         Err(error) => report(app, None, format!("Navigation error: {error}"), false),
     }
@@ -263,21 +290,38 @@ fn sync_history(tab: &mut BrowserTab, app: &AppHandle, browser_data: &BrowserDat
     if (url.starts_with("https://") || url.starts_with("http://"))
         && tab.history.current() != Some(url.as_str())
     {
+        // Site-initiated searches may redirect without going through the
+        // address-bar Navigate command. The trusted Google continue= URL
+        // provides the original search query in that case.
+        let blocked = blocked_google_search_query(&tab.address, &url);
         tab.history.record(url.clone());
         let title = document_title(&mut tab.page);
         tab.address = url.clone();
-        tab.title = if title.is_empty() { "Untitled page".into() } else { title.clone() };
-        if browser_data.settings().save_history {
-                let _ = browser_data.record_visit(title.clone(), url.clone());
-            }
-        let message = if title.is_empty() {
+        tab.title = if blocked.is_some() {
+            "Google search unavailable".to_string()
+        } else if title.is_empty() {
+            "Untitled page".into()
+        } else {
+            title.clone()
+        };
+        tab.blocked_search = blocked;
+        if tab.blocked_search.is_none() && browser_data.settings().save_history {
+            let _ = browser_data.record_visit(title.clone(), url.clone());
+        }
+        let message = if tab.blocked_search.is_some() {
+            "Google requested traffic verification".to_string()
+        } else if title.is_empty() {
             "Page loaded".to_string()
         } else {
             format!("Page loaded: {title}")
         };
         report(app, Some(url), message, false);
-        publish_tab_title(app, &title);
+        publish_tab_title(app, &tab.title);
         publish_buttons(app, tab);
+        publish_search_blocked(app, tab);
+        if tab.blocked_search.is_some() {
+            let _ = app.emit("browser-frame", String::new());
+        }
         return true;
     }
     false
@@ -296,8 +340,11 @@ fn publish_active_tab(app: &AppHandle, tabs: &mut [BrowserTab], active_id: &str,
     );
     publish_tab_title(app, &tab.title);
     publish_buttons(app, tab);
+    publish_search_blocked(app, tab);
     tab.last_frame = None;
-    if tab.address.starts_with("http://") || tab.address.starts_with("https://") {
+    if tab.blocked_search.is_some() {
+        let _ = app.emit("browser-frame", String::new());
+    } else if tab.address.starts_with("http://") || tab.address.starts_with("https://") {
         capture(&tab.page, viewport, app, &mut tab.last_frame);
     } else {
         let _ = app.emit("browser-frame", String::new());
@@ -386,6 +433,30 @@ fn engine_thread(
                         }
                     }
                     Err(error) => report(&app, None, error.to_string(), false),
+                }
+            }
+            Ok(Command::SearchWithProvider(query, provider)) => {
+                // A provider switch is user-initiated and never updates
+                // the persisted default search engine.
+                match build_search_url(&query, &provider) {
+                    Ok(url) => {
+                        if let Some(index) = tabs.iter().position(|tab| tab.id == active_id) {
+                            tabs[index].restore_url = None;
+                            navigate(&mut tabs[index], &runtime, viewport, &app, &browser_data, &url, None);
+                            publish_tab_list(&app, &tabs, &active_id);
+                            persist_session(&browser_data, &tabs, &active_id);
+                        }
+                    }
+                    Err(error) => report(&app, None, error.to_string(), false),
+                }
+            }
+            Ok(Command::DismissSearchBlock) => {
+                if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
+                    if tab.blocked_search.take().is_some() {
+                        publish_search_blocked(&app, tab);
+                        tab.last_frame = None;
+                        capture(&tab.page, viewport, &app, &mut tab.last_frame);
+                    }
                 }
             }
             Ok(Command::NewTab) => {
@@ -506,7 +577,9 @@ fn engine_thread(
                             tab.last_frame = None;
                         }
                         if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
-                            if tab.address.starts_with("http://") || tab.address.starts_with("https://") {
+                            if tab.blocked_search.is_none()
+                                && (tab.address.starts_with("http://") || tab.address.starts_with("https://"))
+                            {
                                 capture(&tab.page, next, &app, &mut tab.last_frame);
                             }
                         }
@@ -515,11 +588,15 @@ fn engine_thread(
             }
             Ok(Command::Click(x, y)) => {
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
-                    if tab.address.starts_with("http://") || tab.address.starts_with("https://") {
+                    if tab.blocked_search.is_none()
+                        && (tab.address.starts_with("http://") || tab.address.starts_with("https://"))
+                    {
                         input::click(&mut tab.page, viewport, x, y);
                         runtime.block_on(tab.page.settle(60));
                         let history_changed = sync_history(tab, &app, &browser_data);
-                        capture(&tab.page, viewport, &app, &mut tab.last_frame);
+                        if tab.blocked_search.is_none() {
+                            capture(&tab.page, viewport, &app, &mut tab.last_frame);
+                        }
                         publish_tab_list(&app, &tabs, &active_id);
                         if history_changed {
                             persist_session(&browser_data, &tabs, &active_id);
@@ -529,7 +606,9 @@ fn engine_thread(
             }
             Ok(Command::Scroll(x, y, dx, dy)) => {
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
-                    if tab.address.starts_with("http://") || tab.address.starts_with("https://") {
+                    if tab.blocked_search.is_none()
+                        && (tab.address.starts_with("http://") || tab.address.starts_with("https://"))
+                    {
                         input::scroll(&mut tab.page, viewport, x, y, dx, dy);
                         runtime.block_on(tab.page.settle(40));
                         capture(&tab.page, viewport, &app, &mut tab.last_frame);
@@ -538,11 +617,15 @@ fn engine_thread(
             }
             Ok(Command::Type(key)) => {
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
-                    if tab.address.starts_with("http://") || tab.address.starts_with("https://") {
+                    if tab.blocked_search.is_none()
+                        && (tab.address.starts_with("http://") || tab.address.starts_with("https://"))
+                    {
                         input::key(&mut tab.page, &key);
                         runtime.block_on(tab.page.settle(40));
                         let history_changed = sync_history(tab, &app, &browser_data);
-                        capture(&tab.page, viewport, &app, &mut tab.last_frame);
+                        if tab.blocked_search.is_none() {
+                            capture(&tab.page, viewport, &app, &mut tab.last_frame);
+                        }
                         publish_tab_list(&app, &tabs, &active_id);
                         if history_changed {
                             persist_session(&browser_data, &tabs, &active_id);
@@ -556,13 +639,17 @@ fn engine_thread(
             },
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
-                    if tab.address.starts_with("http://") || tab.address.starts_with("https://") {
+                    if tab.blocked_search.is_none()
+                        && (tab.address.starts_with("http://") || tab.address.starts_with("https://"))
+                    {
                         runtime.block_on(async {
                             tab.page.settle(50).await;
                             tab.page.prepare_screenshot_resources(75).await;
                         });
                         let history_changed = sync_history(tab, &app, &browser_data);
-                        capture(&tab.page, viewport, &app, &mut tab.last_frame);
+                        if tab.blocked_search.is_none() {
+                            capture(&tab.page, viewport, &app, &mut tab.last_frame);
+                        }
                         publish_tab_list(&app, &tabs, &active_id);
                         if history_changed {
                             persist_session(&browser_data, &tabs, &active_id);
@@ -593,6 +680,22 @@ fn browser_frontend_ready(state: State<'_, EngineState>) -> Result<(), String> {
 #[tauri::command]
 fn browser_navigate(state: State<'_, EngineState>, address: String) -> Result<(), String> {
     send_command(&state, Command::Navigate(address))
+}
+
+#[tauri::command]
+fn browser_search_with_provider(
+    state: State<'_, EngineState>,
+    query: String,
+    provider: String,
+) -> Result<(), String> {
+    // Reject unsupported providers before enqueuing work.
+    build_search_url(&query, &provider)?;
+    send_command(&state, Command::SearchWithProvider(query, provider))
+}
+
+#[tauri::command]
+fn browser_dismiss_search_notice(state: State<'_, EngineState>) -> Result<(), String> {
+    send_command(&state, Command::DismissSearchBlock)
 }
 
 #[tauri::command]
@@ -762,6 +865,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .invoke_handler(tauri::generate_handler![
             browser_frontend_ready,
             browser_navigate,
+            browser_search_with_provider,
+            browser_dismiss_search_notice,
             browser_new_tab,
             browser_reopen_tab,
             browser_close_tab,

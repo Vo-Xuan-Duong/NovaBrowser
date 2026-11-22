@@ -12,6 +12,14 @@
   const appWindow = window.__TAURI__.window.getCurrentWindow();
   const pageArea = document.getElementById("page-area");
   const pageFrame = document.getElementById("page-frame");
+  const blockedPanel = document.getElementById("search-blocked");
+  const blockedQueryLabel = document.getElementById("search-blocked-query");
+  const blockedButtons = [
+    document.getElementById("search-blocked-bing"),
+    document.getElementById("search-blocked-duckduckgo"),
+    document.getElementById("search-blocked-google"),
+    document.getElementById("search-blocked-view"),
+  ];
   const address = document.getElementById("address");
   const tabList = document.getElementById("tab-list");
   const statusBubble = document.getElementById("status-bubble");
@@ -35,6 +43,55 @@
   let lastTabs = [];
   let currentPreferences = { homepage: "nova://home", showHomeButton: true, showBookmarksBar: false };
   let bookmarksRefreshSeq = 0;
+  let blockedSearchQuery = null;
+
+  function updateSearchBlock(query) {
+    // Backend sends a query string or null; never render query HTML.
+    const valid = typeof query === "string"
+      && query.trim().length > 0 && query.length <= 4096;
+    blockedSearchQuery = valid ? query : null;
+    blockedPanel.hidden = !blockedSearchQuery;
+    blockedQueryLabel.textContent = blockedSearchQuery || "";
+    for (const button of blockedButtons) button.disabled = false;
+    if (blockedSearchQuery) {
+      pageFrame.removeAttribute("src");
+      pageFrame.style.visibility = "hidden";
+    }
+  }
+
+  async function searchAfterBlock(provider) {
+    const query = blockedSearchQuery;
+    if (!query) return;
+    for (const button of blockedButtons) button.disabled = true;
+    try {
+      // Explicit consent: no automatic provider substitution or default
+      // search-setting changes. The query stays inside this user's action.
+      await invoke("browser_search_with_provider", { query, provider });
+    } catch (error) {
+      showError(error);
+      for (const button of blockedButtons) button.disabled = false;
+    }
+  }
+
+  async function viewBlockedGooglePage() {
+    if (!blockedSearchQuery) return;
+    for (const button of blockedButtons) button.disabled = true;
+    try {
+      await invoke("browser_dismiss_search_notice");
+    } catch (error) {
+      showError(error);
+      for (const button of blockedButtons) button.disabled = false;
+    }
+  }
+
+  document.getElementById("search-blocked-bing")
+    .addEventListener("click", () => void searchAfterBlock("bing"));
+  document.getElementById("search-blocked-duckduckgo")
+    .addEventListener("click", () => void searchAfterBlock("duckduckgo"));
+  document.getElementById("search-blocked-google")
+    .addEventListener("click", () => void searchAfterBlock("google"));
+  document.getElementById("search-blocked-view")
+    .addEventListener("click", () => void viewBlockedGooglePage());
 
   function applyBrowserPreferences(settings) {
     if (!settings) return;
@@ -550,10 +607,13 @@
         refreshActiveTabChrome();
         if (libraryMode === "bookmarks" && !libraryPanel.hidden) void renderLibrary("bookmarks");
       }),
+      listen("browser-search-blocked", ({ payload }) => {
+        updateSearchBlock(payload);
+      }),
       listen("browser-frame", ({ payload }) => {
         // A newly activated lazy tab has no frame until its page loads.
         // Clear the previous tab's image rather than showing stale content.
-        if (payload) {
+        if (payload && blockedPanel.hidden) {
           pageFrame.src = `data:image/png;base64,${payload}`;
           pageFrame.style.visibility = "visible";
         } else {
