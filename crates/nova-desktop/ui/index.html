@@ -9,6 +9,7 @@
     <script src="icons.js" defer></script>
     <script src="i18n.js" defer></script>
     <script src="settings.js" defer></script>
+    <script src="home.js" defer></script>
     <script src="app.js" defer></script>
   </head>
   <body>
@@ -78,6 +79,54 @@
         </div>
       </section>
 
+
+      <!-- Internal new-tab page. It never loads external resources into WebView2. -->
+      <section class="home-page" id="home-page" aria-label="NovaBrowser home" hidden>
+        <div class="home-content">
+          <header class="home-topline">
+            <div class="home-brand"><span class="home-mark" aria-hidden="true">N</span><span>NovaBrowser</span></div>
+            <button type="button" id="home-customize" class="home-personalize">
+              <span class="icon-slot" data-icon="settings-2" aria-hidden="true"></span>Customize
+            </button>
+          </header>
+          <div class="home-center">
+            <p class="home-kicker" id="home-greeting">Welcome back</p>
+            <h1 class="home-title">New tab</h1>
+            <p class="home-description">Where would you like to go?</p>
+            <form class="home-search-box" id="home-search-form" autocomplete="off">
+              <span class="icon-slot" data-icon="search" aria-hidden="true"></span>
+              <input id="home-search-input" type="text" spellcheck="false" enterkeyhint="go"
+                aria-label="Search the web or enter an address"
+                placeholder="Search the web or enter an address" />
+              <button type="submit" class="home-search-submit">
+                Search <span class="icon-slot" data-icon="arrow-right" aria-hidden="true"></span>
+              </button>
+            </form>
+            <div class="home-search-provider" id="home-search-provider">Search with Google</div>
+          </div>
+
+          <section class="home-section home-links" aria-label="Quick links">
+            <div class="home-section-heading">
+              <h2 id="home-shortcuts-title">Quick links</h2>
+              <button type="button" id="home-open-bookmarks">View bookmarks <span class="icon-slot" data-icon="arrow-right" aria-hidden="true"></span></button>
+            </div>
+            <div class="home-shortcut-grid" id="home-shortcuts-list" aria-live="polite"></div>
+          </section>
+
+          <section class="home-section home-recent" aria-label="Recent activity">
+            <div class="home-section-heading">
+              <h2>Recently visited</h2>
+              <button type="button" id="home-open-history">View history <span class="icon-slot" data-icon="arrow-right" aria-hidden="true"></span></button>
+            </div>
+            <div class="home-recent-list" id="home-recent-list"></div>
+          </section>
+          <footer class="home-footer">
+            <span>NovaBrowser · New tab</span>
+            <span id="home-today"></span>
+          </footer>
+        </div>
+      </section>
+
       <aside class="library-panel" id="library-panel" aria-label="Browser library" hidden>
         <div class="library-heading">
           <div>
@@ -136,9 +185,9 @@
                   </label>
                   <label class="preferences-row is-stacked" for="homepage-setting">
                     <span class="preferences-row-text"><strong>Homepage</strong><small>Used when opening the homepage and, optionally, new tabs.</small></span>
-                    <input id="homepage-setting" type="text" autocomplete="url" spellcheck="false" maxlength="4096" placeholder="https://example.com/" aria-describedby="homepage-help settings-error" />
+                    <input id="homepage-setting" type="text" autocomplete="url" spellcheck="false" maxlength="4096" placeholder="nova://home" aria-describedby="homepage-help settings-error" />
                   </label>
-                  <p class="preferences-field-note" id="homepage-help">Enter a website address or search term. Changing it does not close your current tabs.</p>
+                  <p class="preferences-field-note" id="homepage-help">Use nova://home for NovaBrowser Home, or enter a website address. This won't close your current tabs.</p>
                 </div>
                 <div class="preferences-section-note"><span class="icon-slot" data-icon="info" aria-hidden="true"></span>When session restore is enabled, NovaBrowser reopens saved tabs. Inactive tabs load when selected.</div>
               </section>
@@ -213,7 +262,7 @@
                   <h2>New tabs</h2>
                   <label class="preferences-row" for="new-tab-setting">
                     <span class="preferences-row-text"><strong>When opening a new tab</strong><small>Applies to the plus button and Ctrl+T.</small></span>
-                    <select id="new-tab-setting"><option value="homepage">Open homepage</option><option value="blank">Open a blank tab</option></select>
+                    <select id="new-tab-setting"><option value="nova">NovaBrowser Home</option><option value="homepage">Open homepage</option><option value="blank">Open a blank tab</option></select>
                   </label>
                   <div class="preferences-row">
                     <span class="preferences-row-text"><strong>Maximum open tabs</strong><small>Current engine preview limit.</small></span><span class="preferences-static-value">8 tabs</span>
@@ -259,6 +308,8 @@
                   <div class="preferences-shortcut"><span>Address bar</span><kbd>Ctrl</kbd><kbd>L</kbd></div>
                   <div class="preferences-shortcut"><span>Settings</span><kbd>Ctrl</kbd><kbd>,</kbd></div>
                   <div class="preferences-shortcut"><span>Bookmark current page</span><kbd>Ctrl</kbd><kbd>D</kbd></div>
+                  <div class="preferences-shortcut"><span>Reopen closed tab</span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>T</kbd></div>
+                  <div class="preferences-shortcut"><span>Switch tabs</span><kbd>Ctrl</kbd><kbd>Tab</kbd></div>
                 </div>
                 <div class="preferences-section-note"><span class="icon-slot" data-icon="info" aria-hidden="true"></span>This is an engineering preview and does not yet provide the isolation and security guarantees of production browsers.</div>
               </section>

@@ -9,6 +9,9 @@ pub fn normalize_address(raw: &str) -> Result<String, &'static str> {
 
 pub fn normalize_address_with_search(raw: &str, search_engine: &str) -> Result<String, &'static str> {
     let input = raw.trim();
+    if input.eq_ignore_ascii_case("nova://home") {
+        return Ok("nova://home".to_string());
+    }
     if input.is_empty() {
         return Err("Enter a web address or search query");
     }
@@ -124,6 +127,15 @@ mod tests {
         let q = url::Url::parse(&duck).unwrap();
         assert_eq!(q.query_pairs().find(|(key, _)| key == "q").unwrap().1, "rust language");
         assert_eq!(normalize_address_with_search("example.com", "bing").unwrap(), "https://example.com/");
+    }
+
+    #[test]
+    fn accepts_only_the_internal_home_address() {
+        assert_eq!(normalize_address("nova://home").unwrap(), "nova://home");
+        assert_eq!(normalize_address("NOVA://HOME").unwrap(), "nova://home");
+        for value in ["nova://settings", "nova://home/evil", "nova://debug", "nova://home?x=1"] {
+            assert!(normalize_address(value).is_err(), "{value}");
+        }
     }
 
     #[test]

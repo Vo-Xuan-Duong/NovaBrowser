@@ -219,3 +219,59 @@ elements. Dynamically generated tab labels, history dates and bookmark
 notifications use the same catalog. The code is structured for additional
 locale catalogs later. Do not use this preference to claim full website
 translation or set a misleading web security indicator.
+
+## NovaBrowser Home (internal new tab)
+
+NovaBrowser has a dedicated local Home/new-tab page under `nova://home`.
+It is not a screenshot of a website and is **never** fetched over HTTP or
+sent to an Obscura JavaScript context. The trusted Tauri UI renders it in
+`ui/index.html`, `ui/home.js`, and `ui/app.css`. Its features are
+wired to existing Rust endpoints:
+
+- Search / address input submits to `browser_navigate` and respects the
+  selected search engine; `nova://home` is a whitelisted internal URL.
+- Quick access displays real saved bookmarks; when none exist it clearly
+  labels public suggestions (GitHub, Wikipedia, MDN and YouTube).
+- Recently visited shows at most four distinct entries from the local
+  history store. Nothing is invented when there is no history.
+- View Bookmarks, View History and Customize open actual browser controls.
+- English/Vietnamese localization and light/dark appearance are shared
+  with the rest of the browser chrome.
+
+The default homepage is now `nova://home`, and the new-tab destination
+offers three choices: **NovaBrowser Home**, configured homepage or blank.
+To avoid replacing a user's actual work, session restoration continues
+to honor saved web tabs; only a legacy demo-only profile whose every open tab
+is the shipped Example Domain page is migrated to Home. Older settings with
+the shipped demo homepage are also migrated to the new local address.
+This does not affect non-demo browsing histories or saved bookmarks.
+
+The Rust tab navigator records Home in its history, publishes a blank
+screenshot to clear stale website frames, and skips DOM input/screenshot
+polling while Home is selected. Back/Forward/Reload works with the virtual
+URL. Session persistence accepts exactly `nova://home`; other internal,
+`file:`, `data:`, and `javascript:` schemes stay forbidden.
+
+Implemented additional shortcuts: **Ctrl+Shift+T** reopens the most
+recently closed tab (up to 16 in-memory entries; reloads its URL, not
+form/JS/scroll state); **Ctrl+Tab**/**Ctrl+Shift+Tab** and
+**Ctrl+PageDown**/**Ctrl+PageUp** switch tabs, **Ctrl+1–8** activates a tab
+by index, and **Alt+Home** navigates to the configured homepage.
+
+### Local regression checks
+
+1. Build with `cargo check -p nova-desktop` and
+   `cargo test -p nova-desktop` on Windows.
+2. On a fresh profile, verify `nova://home` opens without a network request.
+3. Type a URL/search in the Home search field; verify the address bar, tab
+   title, Back and Forward work, including returning to Home.
+4. Create multiple tabs, switch with keyboard shortcuts, close and reopen
+   with Ctrl+Shift+T.
+5. Bookmark a page, return to Home and verify the new shortcut. Navigate
+   from a shortcut and from a recent-history row.
+6. Switch English/Vietnamese and Light/Dark; verify Home and Settings.
+7. Set the New Tab preference to NovaBrowser Home, homepage or blank and
+   verify each behavior, then restart to verify session restoration.
+8. Resize the window and confirm Home does not show an image from another
+   tab. The Obscura website renderer still has unresolved glyph/font
+   fallbacks for some non-Latin pages and is not production-ready.

@@ -45,9 +45,9 @@ impl Default for BrowserSettings {
     fn default() -> Self {
         Self {
             theme: "light".to_string(),
-            homepage: "https://example.com/".to_string(),
+            homepage: "nova://home".to_string(),
             startup: "restore".to_string(),
-            new_tab: "homepage".to_string(),
+            new_tab: "nova".to_string(),
             search_engine: "google".to_string(),
             save_history: true,
             show_home_button: false,
@@ -68,8 +68,8 @@ impl BrowserSettings {
         if !matches!(self.startup.as_str(), "restore" | "homepage") {
             self.startup = "restore".to_string();
         }
-        if !matches!(self.new_tab.as_str(), "homepage" | "blank") {
-            self.new_tab = "homepage".to_string();
+        if !matches!(self.new_tab.as_str(), "nova" | "homepage" | "blank") {
+            self.new_tab = "nova".to_string();
         }
         if !matches!(self.search_engine.as_str(), "google" | "bing" | "duckduckgo") {
             self.search_engine = "google".to_string();
@@ -109,7 +109,7 @@ impl BrowserSession {
         let mut selected = None;
         for (original_index, mut tab) in self.tabs.into_iter().enumerate() {
             if tabs.len() >= MAX_TABS { break; }
-            let valid = tab.url.is_empty() || (
+            let valid = tab.url.is_empty() || tab.url == "nova://home" || (
                 tab.url.len() <= MAX_SESSION_URL_LENGTH
                     && Url::parse(&tab.url).ok().is_some_and(|url| {
                         matches!(url.scheme(), "http" | "https") && url.host_str().is_some()
@@ -149,6 +149,24 @@ impl BrowserDataStore {
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
+        // Migrate the demo homepage shipped in early previews, but preserve
+        // manually selected homepages and real browsing sessions.
+        let demo_homepage = data.settings.homepage == "https://example.com/";
+        if demo_homepage {
+            data.settings.homepage = "nova://home".to_string();
+            if data.settings.new_tab == "homepage" {
+                data.settings.new_tab = "nova".to_string();
+            }
+            if !data.session.tabs.is_empty() && data.session.tabs.iter().all(|tab| {
+                tab.url == "https://example.com/"
+                    && matches!(tab.title.as_str(), "Example Domain" | "New tab" | "Untitled page")
+            }) {
+                data.session = BrowserSession {
+                    tabs: vec![SessionTab { title: "New tab".into(), url: "nova://home".into() }],
+                    active_index: 0,
+                };
+            }
+        }
         data.settings = data.settings.sanitized();
         Self {
             path,
@@ -287,7 +305,7 @@ mod tests {
         let settings = old.sanitized();
         assert_eq!(settings.theme, "dark");
         assert_eq!(settings.startup, "restore");
-        assert_eq!(settings.new_tab, "homepage");
+        assert_eq!(settings.new_tab, "nova");
         assert_eq!(settings.search_engine, "google");
         assert!(settings.save_history);
     }
@@ -322,7 +340,7 @@ mod tests {
         let safe = corrupt.sanitized();
         assert_eq!(safe.theme, "system");
         assert_eq!(safe.startup, "restore");
-        assert_eq!(safe.new_tab, "homepage");
+        assert_eq!(safe.new_tab, "nova");
         assert_eq!(safe.search_engine, "google");
         assert!(!safe.save_history);
         assert!(!safe.show_home_button);
@@ -342,6 +360,28 @@ mod tests {
             r#"{"theme":"light","homepage":"https://example.com/"}"#
         ).unwrap();
         assert_eq!(legacy.sanitized().language, "system");
+    }
+
+    #[test]
+    fn preserves_internal_home_tabs_across_session_serialization() {
+        let restored = BrowserSession {
+            tabs: vec![SessionTab { title: "New tab".into(), url: "nova://home".into() }],
+            active_index: 0,
+        }.sanitized();
+        assert_eq!(restored.tabs.len(), 1);
+        assert_eq!(restored.tabs[0].url, "nova://home");
+    }
+
+    #[test]
+    fn migrates_the_original_demo_homepage_and_demo_only_session() {
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("nova-migrate-home-{}-{stamp}.json", std::process::id()));
+        fs::write(&path, r#"{"settings":{"homepage":"https://example.com/","newTab":"homepage"},"session":{"tabs":[{"title":"Example Domain","url":"https://example.com/"}],"activeIndex":0}}"#).unwrap();
+        let profile = BrowserDataStore::load(path.clone());
+        assert_eq!(profile.settings().homepage, "nova://home");
+        assert_eq!(profile.settings().new_tab, "nova");
+        assert_eq!(profile.session().tabs[0].url, "nova://home");
+        let _ = fs::remove_file(path);
     }
 
     #[test]

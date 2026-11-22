@@ -23,6 +23,7 @@ enum Command {
     FrontendReady,
     Navigate(String),
     NewTab,
+    ReopenTab,
     CloseTab(String),
     ActivateTab(String),
     Back,
@@ -197,6 +198,24 @@ fn navigate(
     target: &str,
     history_index: Option<usize>,
 ) {
+    // Internal Home is part of the trusted Tauri chrome, never a network page
+    // or JavaScript payload passed to the Obscura engine.
+    if target == "nova://home" {
+        if let Some(index) = history_index {
+            tab.history.select(index);
+        } else {
+            tab.history.record(target.to_string());
+        }
+        tab.address = target.to_string();
+        tab.title = "New tab".to_string();
+        tab.last_frame = None;
+        tab.restore_url = None;
+        let _ = app.emit("browser-frame", String::new());
+        report(app, Some(target.to_string()), "New tab".into(), false);
+        publish_tab_title(app, &tab.title);
+        publish_buttons(app, tab);
+        return;
+    }
     report(app, None, format!("Loading {target}"), true);
     let result: Result<(), String> = runtime.block_on(async {
         tab.page
@@ -277,7 +296,11 @@ fn publish_active_tab(app: &AppHandle, tabs: &mut [BrowserTab], active_id: &str,
     publish_tab_title(app, &tab.title);
     publish_buttons(app, tab);
     tab.last_frame = None;
-    capture(&tab.page, viewport, app, &mut tab.last_frame);
+    if tab.address.starts_with("http://") || tab.address.starts_with("https://") {
+        capture(&tab.page, viewport, app, &mut tab.last_frame);
+    } else {
+        let _ = app.emit("browser-frame", String::new());
+    }
 }
 
 fn engine_thread(
@@ -308,6 +331,7 @@ fn engine_thread(
         BrowserSession::default()
     };
     let selected_index = stored.active_index;
+    let had_saved_tabs = !stored.tabs.is_empty();
     let mut tabs: Vec<BrowserTab> = stored.tabs.into_iter().enumerate()
         .map(|(index, saved)| BrowserTab::restored(
             format!("nova-tab-{}", index + 1), context.clone(), viewport, saved,
@@ -318,6 +342,7 @@ fn engine_thread(
     }
     let mut active_id = tabs[selected_index.min(tabs.len() - 1)].id.clone();
     let mut next_tab_id = tabs.len() as u64 + 1;
+    let mut recently_closed: Vec<SessionTab> = Vec::new();
     let mut frontend_ready = false;
 
     loop {
@@ -329,11 +354,14 @@ fn engine_thread(
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
                     if let Some(url) = tab.restore_url.take() {
                         navigate(tab, &runtime, viewport, &app, &browser_data, &url, None);
-                    } else if tab.address.is_empty() {
+                    } else if tab.address.is_empty() && !had_saved_tabs {
                         let settings = browser_data.settings();
-                        if settings.startup == "homepage" || settings.new_tab == "homepage" {
-                            navigate(tab, &runtime, viewport, &app, &browser_data, &settings.homepage, None);
-                        }
+                        let target = if settings.startup == "homepage" {
+                            settings.homepage.as_str()
+                        } else {
+                            "nova://home"
+                        };
+                        navigate(tab, &runtime, viewport, &app, &browser_data, target, None);
                     }
                 }
                 publish_tab_list(&app, &tabs, &active_id);
@@ -365,17 +393,14 @@ fn engine_thread(
                 active_id = id;
                 publish_active_tab(&app, &mut tabs, &active_id, viewport);
                 let settings = browser_data.settings();
-                if settings.new_tab == "homepage" {
+                let new_tab_target = match settings.new_tab.as_str() {
+                    "nova" => Some("nova://home"),
+                    "homepage" => Some(settings.homepage.as_str()),
+                    _ => None,
+                };
+                if let Some(target) = new_tab_target {
                     if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
-                        navigate(
-                            tab,
-                            &runtime,
-                            viewport,
-                            &app,
-                            &browser_data,
-                            &settings.homepage,
-                            None,
-                        );
+                        navigate(tab, &runtime, viewport, &app, &browser_data, target, None);
                     }
                 }
                 publish_tab_list(&app, &tabs, &active_id);
@@ -387,6 +412,13 @@ fn engine_thread(
                         let old_active_index = tabs.iter().position(|tab| tab.id == active_id).unwrap_or(0);
                         let closing_active = id == active_id;
                         let closed_tab = tabs.remove(closing_index);
+                        recently_closed.push(SessionTab {
+                            title: closed_tab.title.clone(),
+                            url: closed_tab.address.clone(),
+                        });
+                        if recently_closed.len() > 16 {
+                            recently_closed.remove(0);
+                        }
                         runtime.block_on(async { drop(closed_tab) });
                         if closing_active {
                             let next_index = old_active_index.saturating_sub(1).min(tabs.len() - 1);
@@ -395,6 +427,26 @@ fn engine_thread(
                         } else {
                             publish_tab_list(&app, &tabs, &active_id);
                         }
+                        persist_session(&browser_data, &tabs, &active_id);
+                    }
+                }
+            }
+            Ok(Command::ReopenTab) => {
+                if tabs.len() < MAX_TABS {
+                    if let Some(saved) = recently_closed.pop() {
+                        let id = format!("nova-tab-{next_tab_id}");
+                        next_tab_id += 1;
+                        let target = saved.url.clone();
+                        tabs.push(BrowserTab::restored(id.clone(), context.clone(), viewport, saved));
+                        active_id = id;
+                        publish_active_tab(&app, &mut tabs, &active_id, viewport);
+                        if !target.is_empty() {
+                            if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
+                                tab.restore_url = None;
+                                navigate(tab, &runtime, viewport, &app, &browser_data, &target, None);
+                            }
+                        }
+                        publish_tab_list(&app, &tabs, &active_id);
                         persist_session(&browser_data, &tabs, &active_id);
                     }
                 }
@@ -448,14 +500,16 @@ fn engine_thread(
                             tab.last_frame = None;
                         }
                         if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
-                            capture(&tab.page, next, &app, &mut tab.last_frame);
+                            if tab.address.starts_with("http://") || tab.address.starts_with("https://") {
+                                capture(&tab.page, next, &app, &mut tab.last_frame);
+                            }
                         }
                     }
                 }
             }
             Ok(Command::Click(x, y)) => {
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
-                    if !tab.address.is_empty() {
+                    if tab.address.starts_with("http://") || tab.address.starts_with("https://") {
                         input::click(&mut tab.page, viewport, x, y);
                         runtime.block_on(tab.page.settle(60));
                         let history_changed = sync_history(tab, &app, &browser_data);
@@ -469,7 +523,7 @@ fn engine_thread(
             }
             Ok(Command::Scroll(x, y, dx, dy)) => {
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
-                    if !tab.address.is_empty() {
+                    if tab.address.starts_with("http://") || tab.address.starts_with("https://") {
                         input::scroll(&mut tab.page, viewport, x, y, dx, dy);
                         runtime.block_on(tab.page.settle(40));
                         capture(&tab.page, viewport, &app, &mut tab.last_frame);
@@ -478,7 +532,7 @@ fn engine_thread(
             }
             Ok(Command::Type(key)) => {
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
-                    if !tab.address.is_empty() {
+                    if tab.address.starts_with("http://") || tab.address.starts_with("https://") {
                         input::key(&mut tab.page, &key);
                         runtime.block_on(tab.page.settle(40));
                         let history_changed = sync_history(tab, &app, &browser_data);
@@ -496,7 +550,7 @@ fn engine_thread(
             },
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
-                    if !tab.address.is_empty() {
+                    if tab.address.starts_with("http://") || tab.address.starts_with("https://") {
                         runtime.block_on(async {
                             tab.page.settle(50).await;
                             tab.page.prepare_screenshot_resources(75).await;
@@ -538,6 +592,11 @@ fn browser_navigate(state: State<'_, EngineState>, address: String) -> Result<()
 #[tauri::command]
 fn browser_new_tab(state: State<'_, EngineState>) -> Result<(), String> {
     send_command(&state, Command::NewTab)
+}
+
+#[tauri::command]
+fn browser_reopen_tab(state: State<'_, EngineState>) -> Result<(), String> {
+    send_command(&state, Command::ReopenTab)
 }
 
 #[tauri::command]
@@ -654,7 +713,7 @@ fn browser_save_settings(
     if !matches!(startup.as_str(), "restore" | "homepage") {
         return Err("Choose a valid startup behavior".to_string());
     }
-    if !matches!(new_tab.as_str(), "homepage" | "blank") {
+    if !matches!(new_tab.as_str(), "nova" | "homepage" | "blank") {
         return Err("Choose a valid new tab behavior".to_string());
     }
     if !matches!(search_engine.as_str(), "google" | "bing" | "duckduckgo") {
@@ -698,6 +757,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             browser_frontend_ready,
             browser_navigate,
             browser_new_tab,
+            browser_reopen_tab,
             browser_close_tab,
             browser_activate_tab,
             browser_back,

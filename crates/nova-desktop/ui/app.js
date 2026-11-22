@@ -33,7 +33,7 @@
   let currentTitle = "New tab";
   let currentTabAddress = "";
   let lastTabs = [];
-  let currentPreferences = { homepage: "https://example.com/", showHomeButton: false, showBookmarksBar: false };
+  let currentPreferences = { homepage: "nova://home", showHomeButton: true, showBookmarksBar: false };
   let bookmarksRefreshSeq = 0;
 
   function applyBrowserPreferences(settings) {
@@ -41,6 +41,7 @@
     currentPreferences = { ...currentPreferences, ...settings };
     homeAction.hidden = !currentPreferences.showHomeButton;
     bookmarksBar.hidden = !currentPreferences.showBookmarksBar;
+    homeView.setPreferences(currentPreferences);
     if (!bookmarksBar.hidden) void refreshBookmarksBar();
     else {
       ++bookmarksRefreshSeq;
@@ -84,10 +85,46 @@
   }
 
 
+  const homeView = window.NovaHome.create({
+    invoke, i18n,
+    onNavigate(target) {
+      closeLibrary();
+      void call("browser_navigate", { address: target });
+    },
+    onBookmarks() { void renderLibrary("bookmarks"); },
+    onHistory() { void renderLibrary("history"); },
+    onCustomize() { void openSettings("appearance"); },
+    onError: showError,
+  });
+
+  // Keep the internal Home and Settings panels separate from the Obscura
+  // screenshot viewport. A virtual tab never paints a previous site's frame.
+  function syncDocumentView() {
+    if (settingsView.isOpen()) {
+      homeView.hide();
+      pageArea.hidden = true;
+      bookmarkButton.disabled = true;
+      return;
+    }
+    const isHome = currentTabAddress === "nova://home";
+    if (isHome) homeView.show();
+    else homeView.hide();
+    const wasHidden = pageArea.hidden;
+    pageArea.hidden = isHome;
+    bookmarkButton.disabled = isHome || !/^https?:\/\//i.test(currentTabAddress);
+    // Resizing the Obscura viewport is required only when the page becomes
+    // visible again; repeated tab/status updates must not trigger new frames.
+    if (!isHome && wasHidden) {
+      lastSize = "";
+      void publishSize();
+    }
+  }
+
   const settingsView = window.NovaSettings.create({
     invoke,
     onOpen() {
       closeLibrary();
+      homeView.hide();
       pageArea.hidden = true;
       bookmarkButton.disabled = true;
       settingsTrigger.classList.add("is-active");
@@ -98,17 +135,16 @@
     },
     onSaved(settings) {
       applyBrowserPreferences(settings);
+      if (homeView.isOpen()) void homeView.refresh();
       void refreshBookmarkState();
     },
     onClose() {
-      pageArea.hidden = false;
-      bookmarkButton.disabled = false;
       settingsTrigger.classList.remove("is-active");
+      syncDocumentView();
       address.value = currentTabAddress;
       refreshActiveTabChrome();
-      pageArea.focus();
+      if (!homeView.isOpen()) pageArea.focus();
       void refreshBookmarkState();
-      void publishSize();
     },
   });
 
@@ -170,6 +206,7 @@
         item.scrollIntoView({ block: "nearest", inline: "nearest" });
       }
     }
+    syncDocumentView();
   }
 
   function showError(error) {
@@ -189,7 +226,7 @@
   document.getElementById("address-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const target = address.value.trim();
-    const internal = /^nova:\/\/settings(?:\/(general|appearance|search|tabs|privacy|about))?\/?$/i.exec(target);
+    const internal = /^nova:\/\/settings(?:\/(general|appearance|language|search|tabs|privacy|about))?\/?$/i.exec(target);
     if (internal) {
       void openSettings((internal[1] || "general").toLowerCase());
       address.blur();
@@ -199,7 +236,7 @@
     address.value = target;
     void call("browser_navigate", { address: target });
     address.blur();
-    pageArea.focus();
+    if (!homeView.isOpen()) pageArea.focus();
   });
 
   document.getElementById("back").addEventListener("click", () => {
@@ -425,7 +462,32 @@
   });
 
   window.addEventListener("keydown", (event) => {
-    if (event.ctrlKey && event.key.toLowerCase() === "t") {
+    const key = event.key.toLowerCase();
+    if (event.ctrlKey && event.shiftKey && key === "t") {
+      event.preventDefault();
+      closeSettings();
+      void call("browser_reopen_tab");
+    } else if (event.ctrlKey && (event.key === "Tab" || key === "pageup" || key === "pagedown")) {
+      event.preventDefault();
+      if (lastTabs.length > 1) {
+        const index = lastTabs.findIndex((tab) => tab.active);
+        const backwards = event.shiftKey || key === "pageup";
+        const next = (index + (backwards ? -1 : 1) + lastTabs.length) % lastTabs.length;
+        closeSettings();
+        void call("browser_activate_tab", { tabId: lastTabs[next].id });
+      }
+    } else if (event.ctrlKey && !event.shiftKey && /^[1-8]$/.test(key)) {
+      const tab = lastTabs[Number(key) - 1];
+      if (tab) {
+        event.preventDefault();
+        closeSettings();
+        void call("browser_activate_tab", { tabId: tab.id });
+      }
+    } else if (event.altKey && key === "home") {
+      event.preventDefault();
+      closeSettings();
+      void call("browser_navigate", { address: currentPreferences.homepage });
+    } else if (event.ctrlKey && key === "t") {
       event.preventDefault();
       closeSettings();
       void call("browser_new_tab");
@@ -471,6 +533,7 @@
         if (payload.address) {
           currentTabAddress = payload.address;
           if (!settingsView.isOpen() && document.activeElement !== address) address.value = payload.address;
+          syncDocumentView();
         }
         if (!settingsView.isOpen()) void refreshBookmarkState();
         statusMessage.textContent = i18n.t(payload.message);

@@ -88,9 +88,9 @@
       const target = settings.theme || "light";
       const radio = themeChoices.find((choice) => choice.value === target) || themeChoices[1];
       for (const choice of themeChoices) choice.checked = choice === radio;
-      homepage.value = settings.homepage || "https://example.com/";
+      homepage.value = settings.homepage || "nova://home";
       startup.value = settings.startup || "restore";
-      newTab.value = settings.newTab || "homepage";
+      newTab.value = settings.newTab || "nova";
       searchEngine.value = settings.searchEngine || "google";
       saveHistory.checked = settings.saveHistory !== false;
       showHome.checked = settings.showHomeButton === true;

@@ -30,6 +30,10 @@ The original engine requires significant disk space to compile V8.
 
 - Native Tauri desktop shell with a Chrome-inspired title bar, address bar and
   Back / Forward / Reload.
+- Interactive offline Home/new-tab page at `nova://home` with search, real
+  bookmarks, recent visits, public quick-link suggestions and native settings
+  access; selectable as the homepage or new-tab destination.
+- Tab keyboard navigation and reopen-closed-tab (Ctrl+Shift+T).
 - Consistent Lucide SVG icons for the browser chrome, hosted locally without
   icon fonts or runtime CDN dependencies.
 - Multiple isolated page tabs with shared browser cookies, capped at eight tabs.
