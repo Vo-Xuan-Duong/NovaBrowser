@@ -6,6 +6,10 @@ mod input;
 mod navigation;
 mod storage;
 mod viewport;
+#[cfg(all(feature = "servo-embed", target_os = "windows"))]
+mod servo_embed;
+#[cfg(all(feature = "servo-embed", not(target_os = "windows")))]
+compile_error!("The native Servo child-window integration currently requires Windows.");
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -39,6 +43,14 @@ enum Command {
     Click(f32, f32),
     Scroll(f32, f32, f32, f32),
     Type(String),
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    ServoLocation(String, String),
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    ServoTitle(String, String),
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    ServoHistory(String, bool, bool),
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    ServoError(String, String),
     Shutdown,
 }
 
@@ -56,6 +68,10 @@ struct BrowserTab {
     last_frame: Option<u64>,
     restore_url: Option<String>,
     blocked_search: Option<String>,
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    servo_can_back: bool,
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    servo_can_forward: bool,
 }
 
 impl BrowserTab {
@@ -71,6 +87,10 @@ impl BrowserTab {
             last_frame: None,
             restore_url: None,
             blocked_search: None,
+            #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+            servo_can_back: false,
+            #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+            servo_can_forward: false,
         }
     }
 
@@ -164,6 +184,15 @@ fn publish_search_blocked(app: &AppHandle, tab: &BrowserTab) {
 }
 
 fn publish_buttons(app: &AppHandle, tab: &BrowserTab) {
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    {
+        let _ = app.emit("browser-history", HistoryUpdate {
+            can_back: tab.servo_can_back,
+            can_forward: tab.servo_can_forward,
+        });
+        return;
+    }
+    #[cfg(not(all(feature = "servo-embed", target_os = "windows")))]
     let _ = app.emit(
         "browser-history",
         HistoryUpdate {
@@ -189,6 +218,10 @@ fn publish_frame(app: &AppHandle, png: Vec<u8>) {
 
 /// Frame comparisons avoid redundant updates on visually static pages.
 fn capture(page: &Page, viewport: Viewport, app: &AppHandle, hash: &mut Option<u64>) {
+    if cfg!(all(feature = "servo-embed", target_os = "windows")) {
+        let _ = (page, viewport, app, hash);
+        return; // Never transport PNG frames when the native Servo surface is active.
+    }
     let Some(png) = page.screenshot(viewport.css_size()) else {
         let _ = app.emit("browser-frame", String::new());
         return;
@@ -237,6 +270,37 @@ fn navigate(
     // Internal NovaBrowser routes stay in the trusted browser shell.
     if let Err(error) = engine_api::external_page_url(target) {
         report(app, None, format!("Navigation error: {error}"), false);
+        return;
+    }
+    // In native mode this tab owns a real Servo WebView. Do not render its
+    // document a second time with Obscura/V8 or generate PNG frame events.
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    if let Some(bridge) = app.try_state::<servo_embed::ServoBridge>() {
+        let url = match engine_api::external_page_url(target) {
+            Ok(url) => url,
+            Err(error) => {
+                report(app, None, format!("Navigation error: {error}"), false);
+                return;
+            }
+        };
+        if let Err(error) = bridge.send(servo_embed::Control::Navigate {
+            tab: tab.id.clone(), url,
+        }) {
+            report(app, None, format!("Navigation error: {error}"), false);
+            return;
+        }
+        if let Some(index) = history_index {
+            tab.history.select(index);
+        } else {
+            tab.history.record(target.to_string());
+        }
+        tab.address = target.to_owned();
+        tab.title = "Loading...".to_string();
+        tab.restore_url = None;
+        tab.last_frame = None;
+        report(app, Some(target.to_owned()), format!("Loading {target}"), true);
+        publish_tab_title(app, &tab.title);
+        publish_buttons(app, tab);
         return;
     }
     report(app, None, format!("Loading {target}"), true);
@@ -352,6 +416,12 @@ fn publish_active_tab(app: &AppHandle, tabs: &mut [BrowserTab], active_id: &str,
     publish_buttons(app, tab);
     publish_search_blocked(app, tab);
     tab.last_frame = None;
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    if let Some(bridge) = app.try_state::<servo_embed::ServoBridge>() {
+        let _ = bridge.send(servo_embed::Control::Select { tab: tab.id.clone() });
+        let _ = app.emit("browser-frame", String::new());
+        return;
+    }
     if tab.blocked_search.is_some() {
         let _ = app.emit("browser-frame", String::new());
     } else if tab.address.starts_with("http://") || tab.address.starts_with("https://") {
@@ -512,6 +582,12 @@ fn engine_thread(
                         if recently_closed.len() > 16 {
                             recently_closed.remove(0);
                         }
+                        #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+                        if let Some(bridge) = app.try_state::<servo_embed::ServoBridge>() {
+                            let _ = bridge.send(servo_embed::Control::Close {
+                                tab: closed_tab.id.clone(),
+                            });
+                        }
                         runtime.block_on(async { drop(closed_tab) });
                         if closing_active {
                             let next_index = old_active_index.saturating_sub(1).min(tabs.len() - 1);
@@ -558,6 +634,11 @@ fn engine_thread(
                 }
             }
             Ok(Command::Back) => {
+                #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+                if let Some(bridge) = app.try_state::<servo_embed::ServoBridge>() {
+                    let _ = bridge.send(servo_embed::Control::Back { tab: active_id.clone() });
+                    continue;
+                }
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
                     if let Some((index, url)) = tab.history.previous() {
                         navigate(tab, &runtime, viewport, &app, &browser_data, &url, Some(index));
@@ -567,6 +648,11 @@ fn engine_thread(
                 }
             }
             Ok(Command::Forward) => {
+                #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+                if let Some(bridge) = app.try_state::<servo_embed::ServoBridge>() {
+                    let _ = bridge.send(servo_embed::Control::Forward { tab: active_id.clone() });
+                    continue;
+                }
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
                     if let Some((index, url)) = tab.history.next() {
                         navigate(tab, &runtime, viewport, &app, &browser_data, &url, Some(index));
@@ -576,6 +662,14 @@ fn engine_thread(
                 }
             }
             Ok(Command::Reload) => {
+                #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+                if let Some(bridge) = app.try_state::<servo_embed::ServoBridge>() {
+                    if tabs.iter().any(|tab| tab.id == active_id &&
+                        (tab.address.starts_with("http://") || tab.address.starts_with("https://"))) {
+                        let _ = bridge.send(servo_embed::Control::Reload { tab: active_id.clone() });
+                        continue;
+                    }
+                }
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
                     if let Some(url) = tab.history.current().map(str::to_owned) {
                         navigate(tab, &runtime, viewport, &app, &browser_data, &url, None);
@@ -585,6 +679,7 @@ fn engine_thread(
                 }
             }
             Ok(Command::Resize(width, height)) => {
+                if cfg!(all(feature = "servo-embed", target_os = "windows")) { continue; }
                 if let Some(next) = Viewport::from_window(width, height) {
                     if next.width != viewport.width || next.height != viewport.height {
                         viewport = next;
@@ -603,6 +698,7 @@ fn engine_thread(
                 }
             }
             Ok(Command::Click(x, y)) => {
+                if cfg!(all(feature = "servo-embed", target_os = "windows")) { continue; }
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
                     if tab.blocked_search.is_none()
                         && (tab.address.starts_with("http://") || tab.address.starts_with("https://"))
@@ -621,6 +717,7 @@ fn engine_thread(
                 }
             }
             Ok(Command::Scroll(x, y, dx, dy)) => {
+                if cfg!(all(feature = "servo-embed", target_os = "windows")) { continue; }
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
                     if tab.blocked_search.is_none()
                         && (tab.address.starts_with("http://") || tab.address.starts_with("https://"))
@@ -632,6 +729,7 @@ fn engine_thread(
                 }
             }
             Ok(Command::Type(key)) => {
+                if cfg!(all(feature = "servo-embed", target_os = "windows")) { continue; }
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
                     if tab.blocked_search.is_none()
                         && (tab.address.starts_with("http://") || tab.address.starts_with("https://"))
@@ -649,11 +747,54 @@ fn engine_thread(
                     }
                 }
             }
+            #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+            Ok(Command::ServoLocation(tab_id, url)) => {
+                if engine_api::external_page_url(&url).is_err() { continue; }
+                if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                    if tab.address != url {
+                        tab.history.record(url.clone());
+                        tab.address = url.clone();
+                        if browser_data.settings().save_history {
+                            let _ = browser_data.record_visit(tab.title.clone(), url.clone());
+                        }
+                    }
+                    if tab_id == active_id {
+                        report(&app, Some(url), "Page loaded".into(), false);
+                        publish_buttons(&app, tab);
+                    }
+                    publish_tab_list(&app, &tabs, &active_id);
+                    persist_session(&browser_data, &tabs, &active_id);
+                }
+            }
+            #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+            Ok(Command::ServoTitle(tab_id, title)) => {
+                if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                    tab.title = if title.is_empty() { "Untitled page".into() } else { title };
+                    if tab_id == active_id { publish_tab_title(&app, &tab.title); }
+                    publish_tab_list(&app, &tabs, &active_id);
+                    persist_session(&browser_data, &tabs, &active_id);
+                }
+            }
+            #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+            Ok(Command::ServoHistory(tab_id, back, forward)) => {
+                if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                    tab.servo_can_back = back;
+                    tab.servo_can_forward = forward;
+                    if tab_id == active_id { publish_buttons(&app, tab); }
+                }
+            }
+            #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+            Ok(Command::ServoError(tab_id, error)) => {
+                if tab_id == active_id {
+                    report(&app, None, format!("Navigation error: Servo: {error}"), false);
+                }
+            }
             Ok(Command::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                 persist_session(&browser_data, &tabs, &active_id);
                 break;
             },
             Err(mpsc::RecvTimeoutError::Timeout) => {
+                if cfg!(all(feature = "servo-embed", target_os = "windows")) { continue; }
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
                     if tab.blocked_search.is_none()
                         && (tab.address.starts_with("http://") || tab.address.starts_with("https://"))
@@ -860,12 +1001,57 @@ fn browser_save_settings(
     Ok(settings)
 }
 
+#[tauri::command]
+fn browser_get_engine_mode() -> &'static str {
+    if cfg!(all(feature = "servo-embed", target_os = "windows")) {
+        "servo"
+    } else {
+        "obscura"
+    }
+}
+
+/// Trusted chrome reports its vertical content boundary in CSS pixels.
+/// The native host uses the actual parent client size to avoid shrinking the
+/// website when the WebView2 chrome itself is clipped to the toolbar height.
+#[tauri::command]
+fn browser_surface_layout(app: AppHandle, top: f64, visible: bool) -> Result<(), String> {
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    {
+        if !top.is_finite() || top < 0.0 { return Err("Invalid chrome boundary".into()); }
+        let window = app.get_webview_window("main").ok_or("Browser window unavailable")?;
+        let full = window.inner_size().map_err(|error| error.to_string())?;
+        let scale = window.scale_factor().map_err(|error| error.to_string())?;
+        let top = (top * scale).round().clamp(0.0, f64::from(full.height)) as u32;
+        let show_page = visible && top < full.height;
+        let chrome_height = if show_page { top.max(1) } else { full.height.max(1) };
+        let chrome = app.get_webview("main").ok_or("Browser chrome webview missing")?;
+        chrome.set_bounds(tauri::Rect {
+            position: tauri::PhysicalPosition::new(0, 0).into(),
+            size: tauri::PhysicalSize::new(full.width.max(1), chrome_height).into(),
+        }).map_err(|error| error.to_string())?;
+        app.state::<servo_embed::ServoBridge>()
+            .send(servo_embed::Control::Layout {
+                top, width: full.width, height: full.height.saturating_sub(top),
+                visible: show_page,
+            })?;
+    }
+    #[cfg(not(all(feature = "servo-embed", target_os = "windows")))]
+    let _ = (app, top, visible);
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     tauri::Builder::default()
         .setup(|app| {
             let (sender, receiver) = mpsc::channel();
             let data_path = app.path().app_local_data_dir()?.join("browser-data.json");
             let browser_data = Arc::new(BrowserDataStore::load(data_path));
+            #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+            {
+                let bridge = servo_embed::start(app.handle(), sender.clone())
+                    .map_err(std::io::Error::other)?;
+                app.manage(bridge);
+            }
             app.manage(EngineState {
                 commands: sender,
                 browser_data: browser_data.clone(),
@@ -902,10 +1088,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             browser_get_history,
             browser_clear_history,
             browser_get_settings,
-            browser_save_settings
+            browser_save_settings,
+            browser_get_engine_mode,
+            browser_surface_layout
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+                if let Some(bridge) = window.app_handle().try_state::<servo_embed::ServoBridge>() {
+                    let _ = bridge.send(servo_embed::Control::Shutdown);
+                }
                 if let Some(state) = window.app_handle().try_state::<EngineState>() {
                     let _ = state.commands.send(Command::Shutdown);
                 }
