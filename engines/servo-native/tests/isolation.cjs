@@ -38,7 +38,7 @@ for (const [op, variant] of [
 ]) {
   assert.ok(adapter.includes('"op":"' + op + '"'),
     "Browser must serialize " + op);
-  assert.ok(renderer.includes("    " + variant + (variant === "Shutdown" ? "," : " {"),
+  assert.ok(renderer.includes("    " + variant + (variant === "Shutdown" ? "," : " {")),
     "Sidecar must accept " + variant);
 }
 for (const event of ["ready", "fatal", "location", "title", "history",
