@@ -1,124 +1,136 @@
-# NovaBrowser — Servo engine evaluation (Windows)
+# Embedding Servo inside NovaBrowser (Windows engineering plan)
 
-## Scope and rationale
+This document concerns the **website engine of the existing NovaBrowser
+application**, not a replacement Servo application. The product is the
+browser chrome in `crates/nova-desktop/ui/` and the native Rust shell in
+`crates/nova-desktop/src/`. It includes the tab strip, address bar, Home,
+Settings, bookmarks, history, and English/Vietnamese localization.
 
-NovaBrowser aims to browse real sites while keeping **total process-tree
-memory usage** low. Servo is the selected engine, **not an already measured memory winner**. The current desktop uses a Tauri/WebView2 shell and
-Obscura-rendered PNG page frames. Simply replacing its Tauri runtime will
-not automatically give Servo-native website tabs.
+## Current status (2026-11-22)
 
-The selected application in \`apps/nova-browser/\` is therefore a real
-**single-webview Servo browsing test**. It uses the published experimental
-[tauri-runtime-servo](https://github.com/copse-dev/tauri-runtime-servo) crate
-to render both its local start screen and external HTTPS websites through
-Servo. It does not link the Obscura engine and does not require WebView2 as
-its rendering backend. It is the selected NovaBrowser runtime, though it is not feature-complete.
+- The actual product is launched by `run-nova.cmd` or `cargo nova`.
+- It still renders website content using Obscura's experimental CPU PNG
+  frames and a synthetic DOM input adapter.
+- A Servo adapter is **not yet wired into the actual browser window**.
+- `crates/nova-desktop/src/engine_api.rs` now defines browser-owned tab
+  identifiers, bounds, input events, page notifications and the renderer
+  interface to support incremental replacement.
+- `tools/servo-embed-harness/` is a **separate integration test tool**,
+  never a release target; its one-webview demo cannot preserve the browser
+  toolbar when browsing an external website.
+- No Windows runtime build or measured RAM comparison has been completed in
+  this phase.
 
-The preview **reuses** the actual
-\`crates/nova-desktop/src/navigation.rs\` URL/search normalization through a
-Rust \`#[path]\` import rather than reimplementing its search rules.
-The earlier Home, Settings, bookmarks and history remain in the legacy
-source for selective migration; they are not yet available in the Servo app.
+## Why use Servo components?
 
-## Build and run
+Servo's embeddable `servo` crate provides a real HTML/CSS engine, DOM/JS
+runtime, compositing and `WebView` API. It is a candidate to replace only
+the website-content backend of NovaBrowser. Obscura-derived components
+remain useful for app-owned URL normalization, persistent session data and
+related utilities where they add value. Avoid running two complete JS/DOM
+renderers on a single website.
 
-Install Windows 10/11 x64, the Visual Studio C++ toolchain and a current
-64-bit stable Rust toolchain **1.94 or newer**. Servo's first build is
-substantial and fetches SpiderMonkey and other libraries. The runtime is
-experimental and may require extra Windows build dependencies.
+The long-term goal is efficient interactive rendering; **Servo's total RAM
+advantage has not been demonstrated**.
 
-From the repository root:
+## Practical API integration path
 
-\`\`\`cmd
-rustup update stable
-cargo check --manifest-path apps/nova-browser/Cargo.toml
-cargo test --manifest-path apps/nova-browser/Cargo.toml
-node apps/nova-browser/tests/frontend-smoke.cjs
-cargo run --manifest-path apps/nova-browser/Cargo.toml --release
-\`\`\`
+The current Servo 0.8.0 embedding documentation describes:
 
-The experimental runtime 0.1.0 currently uses **Servo 0.5.0**, not the
-latest Servo 0.8.x. These are intentionally pinned to the runtime's tested
-dependency graph; upgrading the engine requires an adapter/runtime update.
+1. `ServoBuilder` creating an instance of `Servo`, with a custom
+   `EventLoopWaker` connected to the native UI event loop.
+2. A `RenderingContext` for display/presentation.
+3. `WebViewBuilder` creating an independent page handle for each tab.
+4. `WebView::load`, `go_back`, `go_forward`, `reload`, `resize`,
+   `notify_input_event` and `paint` implementing page operations.
+5. `Servo::spin_event_loop` driving input, networking and page tasks.
+6. `WebViewDelegate::notify_new_frame_ready` scheduling paints.
 
-The selected app has a separate Cargo workspace for dependency isolation.
-The old `cargo run -p nova-desktop --release` is a legacy-only command, not the selected browser launcher.
+A Servo `WebView` is not `Send` or `Sync`; own page handles and the
+associated rendering contexts on the appropriate event-loop thread. Do not
+pass them across Tauri command-worker threads directly. Events delivered
+to NovaBrowser's shell should contain browser-owned `TabId` values, URL,
+title and history state, not leaked internal Servo handles.
 
-### Using the preview
+`engine_api.rs` establishes the typed boundary. It is not an adapter and
+does not yet implement any of these six Servo operations.
 
-1. Enter a URL or text query and choose Google, Bing or DuckDuckGo.
-   Press Enter. Servo navigates the webview to the real external site.
-2. To navigate again, use **Navigate > Nova Home / Address** or **Ctrl+L**
-   in the native Windows menu. The menu persists when the webview
-   displays an external site.
-3. Navigate > Back/Forward (Alt+Arrow) and Reload (Ctrl+R) are native
-   menu commands. The start screen's quick links are lazy.
-4. Evaluate Google Search, GitHub, Wikipedia and pages containing Unicode
-   text. Servo may still lack features or face Google anti-bot checks;
-   this prototype does not attempt to evade either.
+## Compositing blocker
 
-### Security boundaries
+The published `tauri-runtime-servo` 0.1.0 backend supports a single Servo
+webview per native window. Replacing the NovaBrowser Tauri runtime with
+that backend would make external pages replace the local chrome and break
+the existing tab/Settings interface. **Do not do that.**
 
-- No privileged Tauri capability is granted to remote origins; the
-  capability manifest only permits the bundled local Home window.
-- The \`servo_navigate\` Rust command additionally checks that the
-  current webview URL is **exactly** the packaged Home URL before accepting
-  navigation requests. HTTP/HTTPS is whitelisted; \`file:\`, \`data:\`,
-  \`javascript:\` and other privileged URL schemes are forbidden.
-- Avoid logging in to sensitive accounts in this experimental preview.
-  It has not undergone a browser security review.
+Evaluate either direct embedding of the `servo` crate using an application
+owned rendering context and event loop, or extending an embeddable adapter
+to support multiple independent composited WebViews and a persistent,
+privileged local chrome surface. Prioritize retaining the existing
+HTML/CSS UI and its interaction model over reimplementing it with a new
+toolkit. Do not embed arbitrary sites as iframes.
 
-## Memory benchmark
+The current native NovaBrowser UI uses WebView2 solely for browser chrome on
+Windows. Removing its overhead is a further optimization, not a reason to
+discard the working interface before Servo composition has been proven.
 
-Run the preview, then open a **second PowerShell window**:
+## Migration in safe increments
 
-\`\`\`powershell
-powershell -ExecutionPolicy Bypass -File apps/nova-browser/measure-memory.ps1 -Samples 15 -IntervalSeconds 2 -CsvPath servo-memory.csv
-\`\`\`
+1. Build a single Servo `WebView` **within the existing NovaBrowser
+   window**, inside a viewport below the real toolbar. Verify resizing,
+   painting, focus and native click/scroll/keyboard input.
+2. Route shell navigation, URL/title/history events through
+   `engine_api.rs`. Keep `nova://home` and `nova://settings` local
+   and privileged. Enforce HTTP(S)-only external site requests at the
+   boundary.
+3. Add WebView-per-tab ownership, selection/visibility, lazy creation and
+   release of closed/inactive pages, without moving saved browser state
+   into the engine.
+4. Reconnect the pre-existing settings, search provider, language,
+   bookmarks, history and session restore. Do not change the existing
+   profile format without a tested migration.
+5. Validate origin/IPC separation, permissions, downloads, IME, popups,
+   clipboard, user navigation and per-site isolation.
+6. Benchmark CPU and memory under identical Windows workloads; optimize
+   cold launch, per-tab memory, background tabs and compositor reuse.
+7. Once parity is demonstrated, retire obsolete full-renderer code without
+   losing original license and attribution notices.
 
-Repeat under comparable conditions for the existing app:
+## Local tests
 
-\`\`\`powershell
-powershell -ExecutionPolicy Bypass -File apps/nova-browser/measure-memory.ps1 -ProcessName nova-desktop -Samples 15 -IntervalSeconds 2 -CsvPath obscura-memory.csv
-\`\`\`
+Current NovaBrowser:
 
-The script includes the **complete process tree** of each selected
-application, sums private bytes and working set, and exports timestamped
-samples. For valid comparisons, use the same Windows machine, similar
-monitor resolution, network conditions and browsing workloads:
+```cmd
+cargo check -p nova-desktop
+cargo test -p nova-desktop
+cargo run -p nova-desktop --release
+```
 
-- Startup at Home after 15–30 seconds idle
-- A static site like Wikipedia after it settles
-- Google Search with the same query (if permitted)
-- A JavaScript-heavy site after it settles
-- Return Home and observe retained memory and process count
+Servo harness only:
 
-Compare **PrivateMB** (process-private committed bytes) as the primary
-metric, and WorkingSetMB separately (physical pages may be shared).
-Do not count only the root process or claim a memory win from binary size.
-Servo currently supports just one webview in this preview, so comparing
-the old multi-tab app with many active tabs is *not* yet apples-to-apples.
+```cmd
+cargo check --manifest-path tools/servo-embed-harness/Cargo.toml
+cargo test --manifest-path tools/servo-embed-harness/Cargo.toml
+node tools/servo-embed-harness/tests/frontend-smoke.cjs
+cargo run --manifest-path tools/servo-embed-harness/Cargo.toml --release
+```
 
-## Gaps before full Servo feature parity
+Memory measurement for the actual NovaBrowser, with the app open:
 
-According to the upstream experimental runtime's README, **multiple
-Servo webviews within one native window are not supported yet**.
-NovaBrowser needs a persistent tab/address/Settings chrome *and* a
-separate document surface, so switching its production Tauri runtime
-immediately would break the existing interface. The native menu in this
-preview is a temporary, test-only navigation surface.
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/servo-embed-harness/measure-memory.ps1 -ProcessName nova-desktop -Samples 15 -IntervalSeconds 2 -CsvPath nova-memory.csv
+```
 
-Before considering the selected app feature-complete:
+Repeat with `-ProcessName nova-servo-embed-harness` only for the engine
+harness and identical site workloads. Observe whole-process-tree
+PrivateMB, WorkingSetMB and process counts. Compare more than one workload
+and report variation rather than a single unqualified result.
 
-1. Verify Windows build, Google navigation, Unicode, forms, IME and
-   page security behavior on real devices.
-2. Confirm measurable memory benefits across identical workloads.
-3. Design a compositor or native shell solution supporting a persistent
-   chrome and multiple independently managed Servo pages. Do not rely
-   on cross-origin iframe embedding of arbitrary websites.
-4. Add Servo tab lifecycle/visibility/discard support, then connect
-   existing bookmarks, history, settings and session data.
-5. Retire the legacy source only after feature parity, local tests and
-   a migration path for the saved profile.
+No GitHub Actions or remote build workflows are required or added.
 
-No GitHub Actions or automated workflows are required or added.
+## Sources
+
+- https://doc.servo.org/servo/
+- https://doc.servo.org/servo/struct.WebView.html
+- https://github.com/servo/servo/blob/main/components/servo/examples/winit_minimal.rs
+- https://github.com/copse-dev/tauri-runtime-servo
+- https://docs.rs/crate/servo/0.8.0
