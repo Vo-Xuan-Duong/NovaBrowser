@@ -18,7 +18,7 @@ Runtime for its interface on Windows. Then, in the repository root:
 
 ```powershell
 cargo check -p nova-desktop
-cargo nextest run --release -p nova-desktop
+cargo test -p nova-desktop
 cargo run -p nova-desktop --release
 ```
 
@@ -36,8 +36,9 @@ The original engine requires significant disk space to compile V8.
 - Persistent tab session restore: reopen previous tabs and selected tab, loading
   inactive tabs only when selected.
 - Local bookmarks and browsing history with quick access from the toolbar.
-- Settings for light/dark appearance and a saved homepage for new tabs,
-  with live theme preview, cancel/revert, homepage validation and persistence.
+- Full Settings workspace (`nova://settings`): startup behavior, light/dark/
+  system theme, default search engine, new-tab behavior, homepage and
+  history-recording controls.
 - Integration with the existing Rust DOM, networking and V8 JavaScript runtime.
 - Basic page screenshots, mouse clicks, scrolling and text entry.
 - Viewport updates on window resize, with bounded frame dimensions.

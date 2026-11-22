@@ -28,8 +28,11 @@ events.
 - Address bar: HTTP(S), hostname shortcuts and search terms.
 - Browser navigation: Back, Forward, Reload, page URL and title.
 - Local bookmarks and browsing history, stored in the app's local data folder.
-- Local settings for light/dark appearance and the homepage used for new tabs
-  and when there is no saved session.
+- Dedicated, full-width browser Settings page with sections for General,
+  Appearance (light/dark/system), Search engine (Google/Bing/DuckDuckGo), Tabs,
+  Privacy & data and About.
+- Configurable startup mode, homepage, new-tab behavior, local history recording,
+  and a live theme preview with persistence.
 - Restores open tabs and the selected tab across restarts. Inactive restored
   tabs are loaded on demand rather than fetching all sites at startup.
 - Clear browsing history without removing saved bookmarks.
@@ -130,3 +133,32 @@ certificate/security-state integration before they can convey trust.
 
 Source provenance and notices are in `THIRD_PARTY_NOTICES.md` and
 `crates/nova-desktop/ui/LUCIDE_LICENSE`.
+
+## Full Settings page (native route)
+
+The former two-field popup has been replaced by a full-width settings workspace
+inside the Tauri browser chrome. Open it from the Settings toolbar icon, Ctrl+,
+or by entering `nova://settings` (optionally with a section suffix such as
+`nova://settings/privacy`). This internal route is handled by the UI and is
+never sent to Obscura as a network URL. The current browsing tab remains intact.
+
+The page uses a sidebar and separate content views:
+
+- **General:** startup mode (restore previous session or open homepage) and
+  editable homepage URL/search query.
+- **Appearance:** system, light or dark theme; preview changes immediately
+  and revert them when exiting without saving. System mode observes the
+  operating system preference.
+- **Search engine:** Google, Bing or DuckDuckGo for omnibox search queries.
+- **Tabs:** choose homepage or a blank tab when opening new tabs.
+- **Privacy & data:** stop recording future visits; clear locally saved
+  browsing history explicitly without deleting bookmarks. This does **not**
+  clear cookies, site storage or form state.
+- **About:** runtime/engine information and implemented keyboard shortcuts.
+
+Changes are saved through Tauri's existing `browser_save_settings` command
+and persisted with the existing bookmarks/session profile. New settings use
+Serde defaults so older profile files continue to load. All select values
+and homepage size/scheme are validated again in Rust. Reset changes restores
+the last persisted values, while Back to browsing discards unsaved previews.
+Page rendering remains handled by Obscura, not by WebView2.

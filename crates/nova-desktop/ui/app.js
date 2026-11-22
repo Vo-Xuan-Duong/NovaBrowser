@@ -20,24 +20,37 @@
   const libraryTitle = document.getElementById("library-title");
   const libraryTitleIcon = document.getElementById("library-title-icon");
   const historyFooter = document.getElementById("history-footer");
-  const settingsPanel = document.getElementById("settings-panel");
-  const settingsForm = document.getElementById("settings-form");
-  const settingsError = document.getElementById("settings-error");
-  const themeSetting = document.getElementById("theme-setting");
-  const homepageSetting = document.getElementById("homepage-setting");
   const settingsTrigger = document.getElementById("show-settings");
-  const settingsSaveButton = settingsForm.querySelector(".settings-save");
 
   let lastSize = "";
   let libraryMode = "bookmarks";
   let activeTabId = null;
   let currentTitle = "New tab";
-  let persistedTheme = "light";
-  let settingsSaving = false;
+  let currentTabAddress = "";
 
-  function applyTheme(theme) {
-    document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light";
-  }
+  const settingsView = window.NovaSettings.create({
+    invoke,
+    onOpen() {
+      closeLibrary();
+      pageArea.hidden = true;
+      bookmarkButton.disabled = true;
+      settingsTrigger.classList.add("is-active");
+      document.title = "Settings - NovaBrowser";
+    },
+    onRoute(section) {
+      address.value = section === "general" ? "nova://settings" : `nova://settings/${section}`;
+    },
+    onClose() {
+      pageArea.hidden = false;
+      bookmarkButton.disabled = false;
+      settingsTrigger.classList.remove("is-active");
+      address.value = currentTabAddress;
+      document.title = `${currentTitle} - NovaBrowser`;
+      pageArea.focus();
+      void refreshBookmarkState();
+      void publishSize();
+    },
+  });
 
   function renderTabs(tabs) {
     tabList.replaceChildren();
@@ -48,7 +61,10 @@
       item.setAttribute("aria-selected", String(tab.active));
       item.tabIndex = tab.active ? 0 : -1;
       item.addEventListener("click", (event) => {
-        if (!event.target.closest(".tab-close")) void call("browser_activate_tab", { tabId: tab.id });
+        if (!event.target.closest(".tab-close")) {
+          closeSettings();
+          void call("browser_activate_tab", { tabId: tab.id });
+        }
       });
 
       const mark = document.createElement("span");
@@ -76,7 +92,8 @@
       if (tab.active) {
         activeTabId = tab.id;
         currentTitle = tab.title || "New tab";
-        if (document.activeElement !== address) address.value = tab.address || "";
+        currentTabAddress = tab.address || "";
+        if (!settingsView.isOpen() && document.activeElement !== address) address.value = currentTabAddress;
         item.scrollIntoView({ block: "nearest", inline: "nearest" });
       }
     }
@@ -98,14 +115,31 @@
 
   document.getElementById("address-form").addEventListener("submit", (event) => {
     event.preventDefault();
-    void call("browser_navigate", { address: address.value });
+    const target = address.value.trim();
+    const internal = /^nova:\/\/settings(?:\/(general|appearance|search|tabs|privacy|about))?\/?$/i.exec(target);
+    if (internal) {
+      void openSettings((internal[1] || "general").toLowerCase());
+      address.blur();
+      return;
+    }
+    if (settingsView.isOpen()) closeSettings();
+    address.value = target;
+    void call("browser_navigate", { address: target });
     address.blur();
     pageArea.focus();
   });
 
-  document.getElementById("back").addEventListener("click", () => void call("browser_back"));
-  document.getElementById("forward").addEventListener("click", () => void call("browser_forward"));
-  document.getElementById("reload").addEventListener("click", () => void call("browser_reload"));
+  document.getElementById("back").addEventListener("click", () => {
+    if (settingsView.isOpen()) closeSettings();
+    else void call("browser_back");
+  });
+  document.getElementById("forward").addEventListener("click", () => {
+    if (settingsView.isOpen()) closeSettings();
+    else void call("browser_forward");
+  });
+  document.getElementById("reload").addEventListener("click", () => {
+    if (!settingsView.isOpen()) void call("browser_reload");
+  });
 
   function setBookmarkIcon(bookmarked) {
     bookmarkButton.classList.toggle("is-bookmarked", bookmarked);
@@ -116,6 +150,7 @@
   }
 
   async function refreshBookmarkState() {
+    if (settingsView.isOpen()) return;
     const url = address.value.trim();
     if (!/^https?:\/\//i.test(url)) {
       setBookmarkIcon(false);
@@ -145,6 +180,7 @@
   }
 
   async function renderLibrary(mode) {
+    if (settingsView.isOpen()) closeSettings();
     libraryMode = mode;
     const isHistory = mode === "history";
     libraryTitle.textContent = isHistory ? "Browsing history" : "Bookmarks";
@@ -222,107 +258,28 @@
     void renderLibrary("history");
   });
 
-  function showSettingsError(message, { invalidHomepage = false } = {}) {
-    settingsError.textContent = message;
-    settingsError.hidden = false;
-    if (invalidHomepage) {
-      homepageSetting.setAttribute("aria-invalid", "true");
-      homepageSetting.focus();
-    }
+  function openSettings(section = "general") {
+    return settingsView.open(section).catch(showError);
   }
 
-  async function openSettings() {
-    if (settingsSaving) return;
-    const settings = await call("browser_get_settings");
-    if (!settings) return;
-    closeLibrary();
-    persistedTheme = settings.theme === "dark" ? "dark" : "light";
-    themeSetting.value = persistedTheme;
-    homepageSetting.value = settings.homepage;
-    homepageSetting.removeAttribute("aria-invalid");
-    settingsError.textContent = "";
-    settingsError.hidden = true;
-    settingsPanel.hidden = false;
-    themeSetting.focus();
+  function closeSettings() {
+    settingsView.close();
   }
 
-  function closeSettings({ restoreFocus = false, keepTheme = false } = {}) {
-    if (settingsSaving || settingsPanel.hidden) return;
-    if (!keepTheme) applyTheme(persistedTheme);
-    settingsPanel.hidden = true;
-    settingsError.textContent = "";
-    settingsError.hidden = true;
-    homepageSetting.removeAttribute("aria-invalid");
-    if (restoreFocus) settingsTrigger.focus();
-  }
-
-  // The theme is previewed immediately, then reverted on Cancel/Escape.
-  // It is persisted only after Save completes successfully.
-  themeSetting.addEventListener("change", () => applyTheme(themeSetting.value));
-  homepageSetting.addEventListener("input", () => {
-    settingsError.hidden = true;
-    homepageSetting.removeAttribute("aria-invalid");
-  });
   settingsTrigger.addEventListener("click", () => {
-    if (!settingsPanel.hidden) closeSettings({ restoreFocus: true });
+    if (settingsView.isOpen()) closeSettings();
     else void openSettings();
-  });
-  document.getElementById("close-settings").addEventListener("click", () =>
-    closeSettings({ restoreFocus: true })
-  );
-  document.getElementById("cancel-settings").addEventListener("click", () =>
-    closeSettings({ restoreFocus: true })
-  );
-  settingsForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (settingsSaving) return;
-    const homepage = homepageSetting.value.trim();
-    if (!homepage) {
-      showSettingsError("Enter a homepage URL or a search query.", { invalidHomepage: true });
-      return;
-    }
-    if (new TextEncoder().encode(homepage).length > 4096) {
-      showSettingsError("The homepage must be 4,096 bytes or fewer.", { invalidHomepage: true });
-      return;
-    }
-
-    settingsSaving = true;
-    settingsSaveButton.disabled = true;
-    settingsError.hidden = true;
-    let saved = null;
-    try {
-      saved = await invoke("browser_save_settings", {
-        theme: themeSetting.value,
-        homepage,
-      });
-    } catch (error) {
-      const message = String(error);
-      const invalidHomepage = /^(Enter a|Invalid web address|Only http|The homepage)/i.test(message);
-      showSettingsError(message, { invalidHomepage });
-    } finally {
-      settingsSaving = false;
-      settingsSaveButton.disabled = false;
-    }
-
-    if (saved) {
-      persistedTheme = saved.theme;
-      applyTheme(saved.theme);
-      // A homepage change only affects future new tabs, not the active tab.
-      closeSettings({ keepTheme: true, restoreFocus: true });
-    }
   });
 
   document.addEventListener("click", (event) => {
     if (!libraryPanel.hidden && !libraryPanel.contains(event.target)
         && !event.target.closest("#show-bookmarks, #show-history")) closeLibrary();
-    if (!settingsPanel.hidden && !settingsPanel.contains(event.target)
-        && !event.target.closest("#show-settings")) closeSettings();
   });
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeLibrary();
-      closeSettings({ restoreFocus: true });
+      closeSettings();
     }
   });
 
@@ -340,7 +297,10 @@
     if (!event.target.closest(".tab, #new-tab, .window-controls")) void appWindow.toggleMaximize();
   });
 
-  document.getElementById("new-tab").addEventListener("click", () => void call("browser_new_tab"));
+  document.getElementById("new-tab").addEventListener("click", () => {
+    closeSettings();
+    void call("browser_new_tab");
+  });
 
   pageArea.addEventListener("click", (event) => {
     pageArea.focus();
@@ -377,9 +337,11 @@
   window.addEventListener("keydown", (event) => {
     if (event.ctrlKey && event.key.toLowerCase() === "t") {
       event.preventDefault();
+      closeSettings();
       void call("browser_new_tab");
     } else if (event.ctrlKey && event.key.toLowerCase() === "w") {
       event.preventDefault();
+      closeSettings();
       if (activeTabId) void call("browser_close_tab", { tabId: activeTabId });
     } else if (event.ctrlKey && event.key.toLowerCase() === "l") {
       event.preventDefault();
@@ -399,7 +361,7 @@
       void renderLibrary("bookmarks");
     } else if ((event.ctrlKey && event.key.toLowerCase() === "r") || event.key === "F5") {
       event.preventDefault();
-      void call("browser_reload");
+      if (!settingsView.isOpen()) void call("browser_reload");
     }
   });
 
@@ -416,8 +378,11 @@
   async function connectEvents() {
     await Promise.all([
       listen("browser-status", ({ payload }) => {
-        if (payload.address && document.activeElement !== address) address.value = payload.address;
-        void refreshBookmarkState();
+        if (payload.address) {
+          currentTabAddress = payload.address;
+          if (!settingsView.isOpen() && document.activeElement !== address) address.value = payload.address;
+        }
+        if (!settingsView.isOpen()) void refreshBookmarkState();
         statusMessage.textContent = payload.message;
         statusBubble.classList.toggle("is-visible", payload.showStatus);
         loadingIndicator.classList.toggle("is-loading", payload.loading);
@@ -431,7 +396,7 @@
         currentTitle = payload || "Untitled page";
         const activeLabel = document.querySelector(".tab.is-active .tab-title");
         if (activeLabel) activeLabel.textContent = currentTitle;
-        document.title = `${currentTitle} - NovaBrowser`;
+        if (!settingsView.isOpen()) document.title = `${currentTitle} - NovaBrowser`;
         if (libraryMode === "bookmarks" && !libraryPanel.hidden) void renderLibrary("bookmarks");
       }),
       listen("browser-frame", ({ payload }) => {
@@ -448,10 +413,7 @@
     ]);
     await publishSize();
     const settings = await call("browser_get_settings");
-    if (settings) {
-      persistedTheme = settings.theme === "dark" ? "dark" : "light";
-      applyTheme(persistedTheme);
-    }
+    if (settings) settingsView.applySaved(settings);
     // Register listeners *before* the engine publishes restored tabs.
     // Startup is one-shot; the engine decides between restoring a session
     // and opening the configured homepage on the first launch.

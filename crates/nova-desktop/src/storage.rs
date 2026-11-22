@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::navigation::normalize_address;
+use crate::navigation::normalize_address_with_search;
 
 const MAX_HISTORY_ENTRIES: usize = 500;
 pub const MAX_TABS: usize = 8;
@@ -32,6 +32,10 @@ pub struct Visit {
 pub struct BrowserSettings {
     pub theme: String,
     pub homepage: String,
+    pub startup: String,
+    pub new_tab: String,
+    pub search_engine: String,
+    pub save_history: bool,
 }
 
 impl Default for BrowserSettings {
@@ -39,6 +43,10 @@ impl Default for BrowserSettings {
         Self {
             theme: "light".to_string(),
             homepage: "https://example.com/".to_string(),
+            startup: "restore".to_string(),
+            new_tab: "homepage".to_string(),
+            search_engine: "google".to_string(),
+            save_history: true,
         }
     }
 }
@@ -48,11 +56,20 @@ impl BrowserSettings {
     /// unsupported values. Keep the rest of the profile instead of discarding
     /// bookmarks and tabs when settings need a fallback.
     pub fn sanitized(mut self) -> Self {
-        if self.theme != "light" && self.theme != "dark" {
+        if !matches!(self.theme.as_str(), "light" | "dark" | "system") {
             self.theme = "light".to_string();
         }
+        if !matches!(self.startup.as_str(), "restore" | "homepage") {
+            self.startup = "restore".to_string();
+        }
+        if !matches!(self.new_tab.as_str(), "homepage" | "blank") {
+            self.new_tab = "homepage".to_string();
+        }
+        if !matches!(self.search_engine.as_str(), "google" | "bing" | "duckduckgo") {
+            self.search_engine = "google".to_string();
+        }
         self.homepage = if self.homepage.len() <= MAX_SESSION_URL_LENGTH {
-            normalize_address(&self.homepage)
+            normalize_address_with_search(&self.homepage, &self.search_engine)
                 .unwrap_or_else(|_| BrowserSettings::default().homepage)
         } else {
             BrowserSettings::default().homepage
@@ -244,6 +261,51 @@ mod tests {
     }
 
     #[test]
+    fn expanded_preferences_migrate_old_profiles() {
+        let old: BrowserSettings = serde_json::from_str(
+            r#"{"theme":"dark","homepage":"https://example.com/"}"#
+        ).unwrap();
+        let settings = old.sanitized();
+        assert_eq!(settings.theme, "dark");
+        assert_eq!(settings.startup, "restore");
+        assert_eq!(settings.new_tab, "homepage");
+        assert_eq!(settings.search_engine, "google");
+        assert!(settings.save_history);
+    }
+
+    #[test]
+    fn expanded_preferences_survive_a_profile_round_trip() {
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("nova-preferences-{}-{stamp}.json", std::process::id()));
+        let store = BrowserDataStore::load(path.clone());
+        let changed = BrowserSettings {
+            theme: "system".into(),
+            homepage: "https://example.org/".into(),
+            startup: "homepage".into(),
+            new_tab: "blank".into(),
+            search_engine: "duckduckgo".into(),
+            save_history: false,
+        };
+        store.save_settings(changed.clone()).unwrap();
+        let recovered = BrowserDataStore::load(path.clone());
+        assert_eq!(recovered.settings(), changed);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn invalid_preferences_fall_back_without_discarding_good_values() {
+        let corrupt: BrowserSettings = serde_json::from_str(
+            r#"{"theme":"system","homepage":"https://example.com/","startup":"random","newTab":"unknown","searchEngine":"unknown","saveHistory":false}"#
+        ).unwrap();
+        let safe = corrupt.sanitized();
+        assert_eq!(safe.theme, "system");
+        assert_eq!(safe.startup, "restore");
+        assert_eq!(safe.new_tab, "homepage");
+        assert_eq!(safe.search_engine, "google");
+        assert!(!safe.save_history);
+    }
+
+    #[test]
     fn a_failed_settings_save_keeps_previous_in_memory_value() {
         // A directory cannot be used as a regular file on Windows/Linux.
         let store = BrowserDataStore::load(std::env::temp_dir());
@@ -251,6 +313,7 @@ mod tests {
         let error = store.save_settings(BrowserSettings {
             theme: "dark".into(),
             homepage: "https://www.rust-lang.org/".into(),
+            ..BrowserSettings::default()
         });
         assert!(error.is_err());
         assert_eq!(store.settings(), previous);

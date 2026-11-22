@@ -4,6 +4,10 @@
 use url::Url;
 
 pub fn normalize_address(raw: &str) -> Result<String, &'static str> {
+    normalize_address_with_search(raw, "google")
+}
+
+pub fn normalize_address_with_search(raw: &str, search_engine: &str) -> Result<String, &'static str> {
     let input = raw.trim();
     if input.is_empty() {
         return Err("Enter a web address or search query");
@@ -31,7 +35,12 @@ pub fn normalize_address(raw: &str) -> Result<String, &'static str> {
         || (!input.contains('.') && input != "localhost" && !input.starts_with("localhost:"))
     {
         let encoded: String = url::form_urlencoded::byte_serialize(input.as_bytes()).collect();
-        format!("https://www.google.com/search?q={encoded}")
+        let base = match search_engine {
+            "bing" => "https://www.bing.com/search?q=",
+            "duckduckgo" => "https://duckduckgo.com/?q=",
+            _ => "https://www.google.com/search?q=",
+        };
+        format!("{base}{encoded}")
     } else if input == "localhost" || input.starts_with("localhost:") {
         format!("http://{input}")
     } else {
@@ -104,6 +113,17 @@ mod tests {
         let search = Url::parse(&normalize_address("C++ tiếng Việt").unwrap()).unwrap();
         let query = search.query_pairs().find(|(key, _)| key == "q").unwrap().1;
         assert_eq!(query, "C++ tiếng Việt");
+    }
+
+    #[test]
+    fn respects_the_default_search_engine() {
+        let bing = normalize_address_with_search("rust language", "bing").unwrap();
+        let duck = normalize_address_with_search("rust language", "duckduckgo").unwrap();
+        assert_eq!(url::Url::parse(&bing).unwrap().host_str(), Some("www.bing.com"));
+        assert_eq!(url::Url::parse(&duck).unwrap().host_str(), Some("duckduckgo.com"));
+        let q = url::Url::parse(&duck).unwrap();
+        assert_eq!(q.query_pairs().find(|(key, _)| key == "q").unwrap().1, "rust language");
+        assert_eq!(normalize_address_with_search("example.com", "bing").unwrap(), "https://example.com/");
     }
 
     #[test]

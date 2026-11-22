@@ -15,7 +15,7 @@ use obscura_browser::{BrowserContext, Page};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use navigation::{normalize_address, NavigationHistory};
+use navigation::{normalize_address_with_search, NavigationHistory};
 use storage::{Bookmark, BrowserDataStore, BrowserSession, BrowserSettings, SessionTab, Visit, MAX_TABS};
 use viewport::Viewport;
 
@@ -220,7 +220,9 @@ fn navigate(
             tab.address = url.clone();
             tab.title = if title.is_empty() { "Untitled page".into() } else { title.clone() };
             tab.last_frame = None;
-            let _ = browser_data.record_visit(title.clone(), url.clone());
+            if browser_data.settings().save_history {
+                let _ = browser_data.record_visit(title.clone(), url.clone());
+            }
             let message = if title.is_empty() {
                 "Page loaded".to_string()
             } else {
@@ -245,7 +247,9 @@ fn sync_history(tab: &mut BrowserTab, app: &AppHandle, browser_data: &BrowserDat
         let title = document_title(&mut tab.page);
         tab.address = url.clone();
         tab.title = if title.is_empty() { "Untitled page".into() } else { title.clone() };
-        let _ = browser_data.record_visit(title.clone(), url.clone());
+        if browser_data.settings().save_history {
+                let _ = browser_data.record_visit(title.clone(), url.clone());
+            }
         let message = if title.is_empty() {
             "Page loaded".to_string()
         } else {
@@ -298,7 +302,11 @@ fn engine_thread(
     let mut viewport = Viewport::DEFAULT;
     // Recover tab metadata without opening every saved website at once.
     // Inactive tabs are restored lazily when the user selects them.
-    let stored = browser_data.session();
+    let stored = if browser_data.settings().startup == "restore" {
+        browser_data.session()
+    } else {
+        BrowserSession::default()
+    };
     let selected_index = stored.active_index;
     let mut tabs: Vec<BrowserTab> = stored.tabs.into_iter().enumerate()
         .map(|(index, saved)| BrowserTab::restored(
@@ -322,25 +330,30 @@ fn engine_thread(
                     if let Some(url) = tab.restore_url.take() {
                         navigate(tab, &runtime, viewport, &app, &browser_data, &url, None);
                     } else if tab.address.is_empty() {
-                        let homepage = browser_data.settings().homepage;
-                        navigate(tab, &runtime, viewport, &app, &browser_data, &homepage, None);
+                        let settings = browser_data.settings();
+                        if settings.startup == "homepage" || settings.new_tab == "homepage" {
+                            navigate(tab, &runtime, viewport, &app, &browser_data, &settings.homepage, None);
+                        }
                     }
                 }
                 publish_tab_list(&app, &tabs, &active_id);
                 persist_session(&browser_data, &tabs, &active_id);
             }
-            Ok(Command::Navigate(raw)) => match normalize_address(&raw) {
-                Ok(url) => {
-                    if let Some(index) = tabs.iter().position(|tab| tab.id == active_id) {
-                        publish_tab_list(&app, &tabs, &active_id);
-                        tabs[index].restore_url = None;
-                        navigate(&mut tabs[index], &runtime, viewport, &app, &browser_data, &url, None);
-                        publish_tab_list(&app, &tabs, &active_id);
-                        persist_session(&browser_data, &tabs, &active_id);
+            Ok(Command::Navigate(raw)) => {
+                let search_engine = browser_data.settings().search_engine;
+                match normalize_address_with_search(&raw, &search_engine) {
+                    Ok(url) => {
+                        if let Some(index) = tabs.iter().position(|tab| tab.id == active_id) {
+                            publish_tab_list(&app, &tabs, &active_id);
+                            tabs[index].restore_url = None;
+                            navigate(&mut tabs[index], &runtime, viewport, &app, &browser_data, &url, None);
+                            publish_tab_list(&app, &tabs, &active_id);
+                            persist_session(&browser_data, &tabs, &active_id);
+                        }
                     }
+                    Err(error) => report(&app, None, error.to_string(), false),
                 }
-                Err(error) => report(&app, None, error.to_string(), false),
-            },
+            }
             Ok(Command::NewTab) => {
                 if tabs.len() >= MAX_TABS {
                     report(&app, None, format!("Too many tabs (maximum {MAX_TABS})"), false);
@@ -351,17 +364,19 @@ fn engine_thread(
                 tabs.push(BrowserTab::new(id.clone(), context.clone(), viewport));
                 active_id = id;
                 publish_active_tab(&app, &mut tabs, &active_id, viewport);
-                let homepage = browser_data.settings().homepage;
-                if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
-                    navigate(
-                        tab,
-                        &runtime,
-                        viewport,
-                        &app,
-                        &browser_data,
-                        &homepage,
-                        None,
-                    );
+                let settings = browser_data.settings();
+                if settings.new_tab == "homepage" {
+                    if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
+                        navigate(
+                            tab,
+                            &runtime,
+                            viewport,
+                            &app,
+                            &browser_data,
+                            &settings.homepage,
+                            None,
+                        );
+                    }
                 }
                 publish_tab_list(&app, &tabs, &active_id);
                 persist_session(&browser_data, &tabs, &active_id);
@@ -620,15 +635,31 @@ fn browser_save_settings(
     state: State<'_, EngineState>,
     theme: String,
     homepage: String,
+    startup: String,
+    new_tab: String,
+    search_engine: String,
+    save_history: bool,
 ) -> Result<BrowserSettings, String> {
-    if theme != "light" && theme != "dark" {
-        return Err("Choose either the light or dark appearance".to_string());
+    if !matches!(theme.as_str(), "light" | "dark" | "system") {
+        return Err("Choose a valid appearance".to_string());
+    }
+    if !matches!(startup.as_str(), "restore" | "homepage") {
+        return Err("Choose a valid startup behavior".to_string());
+    }
+    if !matches!(new_tab.as_str(), "homepage" | "blank") {
+        return Err("Choose a valid new tab behavior".to_string());
+    }
+    if !matches!(search_engine.as_str(), "google" | "bing" | "duckduckgo") {
+        return Err("Choose a valid search engine".to_string());
     }
     if homepage.len() > 4096 {
-        return Err("The homepage must be 4,096 characters or fewer".to_string());
+        return Err("The homepage must be 4,096 bytes or fewer".to_string());
     }
-    let homepage = normalize_address(&homepage).map_err(|error| error.to_string())?;
-    let settings = BrowserSettings { theme, homepage };
+    let homepage = normalize_address_with_search(&homepage, &search_engine)
+        .map_err(|error| error.to_string())?;
+    let settings = BrowserSettings {
+        theme, homepage, startup, new_tab, search_engine, save_history,
+    };
     state.browser_data.save_settings(settings.clone())?;
     Ok(settings)
 }
