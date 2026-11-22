@@ -12,12 +12,12 @@
   <main class="layout">
     <header class="topbar">
       <span class="brand"><span class="logo">N</span> NovaBrowser</span>
-      <span class="edition">SERVO ENGINEERING BUILD</span>
+      <span class="edition">SERVO EMBEDDING HARNESS</span>
     </header>
     <section class="intro">
-      <div class="eyebrow">NovaBrowser · Rust + Servo</div>
-      <h1>Khám phá web với Servo.</h1>
-      <p>Servo là engine chính được chọn. Bản phát triển hiện chưa tích hợp giao diện tab, Settings và dữ liệu đã lưu từ bản cũ. Chưa có kết quả đo RAM thực tế.</p>
+      <div class="eyebrow">Servo engine integration test · Rust</div>
+      <h1>Kiểm thử lõi Servo.</h1>
+      <p>Đây chỉ là công cụ kiểm thử khả năng nhúng Servo và độ tương thích website, không phải trình duyệt NovaBrowser. Ứng dụng NovaBrowser thật vẫn giữ nguyên giao diện, tab, Home và Settings hiện có.</p>
       <form id="search-form" class="search-form" autocomplete="off">
         <label class="sr-only" for="address">Nhập URL hoặc từ khóa</label>
         <span class="search-mark" aria-hidden="true">⌕</span>
@@ -44,9 +44,9 @@
     <section class="instructions">
       <h2>Điều hướng khi đã vào website</h2>
       <p>Menu <strong>Navigate</strong> của Windows luôn hiển thị ngay cả khi mở website ngoài. Nhấn <kbd>Ctrl</kbd> + <kbd>L</kbd> để trở về trang nhập địa chỉ, <kbd>Alt</kbd> + <kbd>←</kbd> hoặc <kbd>→</kbd> để quay lại/tiến tới, và <kbd>Ctrl</kbd> + <kbd>R</kbd> để tải lại.</p>
-      <p>Adapter Tauri hiện tại chưa hỗ trợ nhiều Servo webview trong một cửa sổ, nên thanh điều hướng chưa luôn hiển thị khi mở website. Không đăng nhập tài khoản nhạy cảm trong bản phát triển.</p>
+      <p>Giới hạn của adapter thử nghiệm: chỉ một Servo webview trong mỗi cửa sổ, giao diện test bị thay thế khi mở website. Không đăng nhập tài khoản nhạy cảm bằng công cụ kiểm thử này.</p>
     </section>
-    <footer>NovaBrowser · Servo engineering build · No automatic search-engine fallback</footer>
+    <footer>Servo embedding harness · Not a browser release · No automatic search-engine fallback</footer>
   </main>
 </body>
 </html>

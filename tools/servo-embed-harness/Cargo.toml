@@ -1,14 +1,14 @@
 [package]
-name = "nova-browser"
+name = "nova-servo-embed-harness"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.94"
 publish = false
-description = "Selected Servo runtime for NovaBrowser"
+description = "Non-product harness to evaluate embedding Servo into NovaBrowser"
 license = "Apache-2.0"
 
-# Separate Cargo workspace isolates Servo dependencies from the old Obscura
-# reference code; this is the sole selected NovaBrowser application.
+# Separate Cargo workspace to test Servo integration without replacing the
+# actual NovaBrowser shell or altering the main engine dependency lockfile.
 [workspace]
 resolver = "2"
 

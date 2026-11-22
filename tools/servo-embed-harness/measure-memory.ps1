@@ -1,8 +1,8 @@
 # Windows PowerShell 5.1+: sample the complete process tree, not only
-# nova-browser.exe. This is essential for a fair comparison with
+# nova-servo-embed-harness.exe. This is essential for a fair comparison with
 # WebView2/Chromium subprocesses.
 param(
-    [string]$ProcessName = "nova-browser",
+    [string]$ProcessName = "nova-servo-embed-harness",
     [ValidateRange(1, 1000)][int]$Samples = 10,
     [ValidateRange(1, 60)][int]$IntervalSeconds = 2,
     [string]$CsvPath = ""

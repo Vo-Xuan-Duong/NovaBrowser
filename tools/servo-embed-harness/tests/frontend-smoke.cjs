@@ -1,5 +1,5 @@
 // Dependency-free Node.js smoke checks for the Servo preview landing page.
-// Run: node apps/nova-browser/tests/frontend-smoke.cjs
+// Run: node tools/servo-embed-harness/tests/frontend-smoke.cjs
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -76,7 +76,7 @@ class Node {
   await flush();
   assert.equal(commands.length, 3, "empty input must not navigate");
   assert.equal(nodes.address.focused, true);
-  process.stdout.write("NovaBrowser Servo frontend checks passed\n");
+  process.stdout.write("Servo embedding harness frontend checks passed\n");
 })().catch(error => {
   process.stderr.write(String(error.stack || error) + "\n");
   process.exitCode = 1;

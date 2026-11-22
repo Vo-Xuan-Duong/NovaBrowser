@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-/// Selected browser engine: Servo (engineering build).
+/// Non-product test harness for evaluating Servo embedding in NovaBrowser.
 /// The native menu remains accessible when the single Servo webview navigates
 /// away from our trusted local Home page. No untrusted page may invoke Rust.
 #[path = "../../../crates/nova-desktop/src/navigation.rs"]
