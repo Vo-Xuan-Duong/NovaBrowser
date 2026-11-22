@@ -53,6 +53,23 @@ fn publish_buttons(ui: &Weak<NovaWindow>, history: &NavigationHistory) {
     });
 }
 
+// Keep the single visible tab in sync with the document's real title.
+fn publish_tab_title(ui: &Weak<NovaWindow>, page: &mut Page) {
+    let value = page.evaluate("document.title");
+    let title = value.as_str().unwrap_or("").trim();
+    let title = if title.is_empty() {
+        "Untitled page".to_string()
+    } else {
+        title.to_string()
+    };
+    let ui = ui.clone();
+    let _ = slint::invoke_from_event_loop(move || {
+        if let Some(window) = ui.upgrade() {
+            window.set_tab_title(title.into());
+        }
+    });
+}
+
 fn publish_frame(ui: &Weak<NovaWindow>, png: Vec<u8>) {
     let ui = ui.clone();
     let _ = slint::invoke_from_event_loop(move || {
@@ -120,6 +137,7 @@ fn navigate(
             }
             *last_frame = None;
             report(ui, Some(url), loaded_title(page), false);
+            publish_tab_title(ui, page);
             publish_buttons(ui, history);
             capture(page, viewport, ui, last_frame);
         }
@@ -137,6 +155,7 @@ fn sync_history(page: &mut Page, ui: &Weak<NovaWindow>, history: &mut Navigation
     {
         history.record(url.clone());
         report(ui, Some(url), loaded_title(page), false);
+        publish_tab_title(ui, page);
         publish_buttons(ui, history);
     }
 }

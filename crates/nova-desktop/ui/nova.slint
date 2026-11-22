@@ -1,12 +1,51 @@
-import { Button, LineEdit } from "std-widgets.slint";
+import { LineEdit } from "std-widgets.slint";
+
+// Fluent-inspired browser chrome. One live tab is supported by the engine;
+// this control does not pretend to open tabs that do not exist yet.
+component NavAction inherits Rectangle {
+    in property <string> icon-data: "";
+    in property <bool> available: true;
+    callback activated();
+
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background: !root.available ? #1a2639
+        : hit.pressed ? #405475
+        : hit.has-hover ? #344560
+        : #233149;
+    border-width: 1px;
+    border-color: !root.available ? #263247 : hit.has-hover ? #60769b : #34445d;
+
+    Path {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 19px;
+        height: 19px;
+        commands: root.icon-data;
+        stroke: root.available ? #f2f6ff : #718198;
+        stroke-width: 2px;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+    }
+
+    hit := TouchArea {
+        enabled: root.available;
+        mouse-cursor: pointer;
+        clicked => { root.activated(); }
+    }
+}
 
 export component NovaWindow inherits Window {
-    title: "NovaBrowser · Desktop Preview";
+    title: "NovaBrowser";
     width: 1280px;
     height: 820px;
-    background: #f6f8fc;
+    min-width: 740px;
+    min-height: 500px;
+    background: #eef2f8;
 
     in-out property <string> address: "https://example.com";
+    in property <string> tab-title: "New tab";
     in property <string> status: "Starting browser engine";
     in property <bool> loading: false;
     in property <bool> can-back: false;
@@ -29,49 +68,148 @@ export component NovaWindow inherits Window {
 
     VerticalLayout {
         spacing: 0px;
+
+        // Single active tab: reserve a tab strip for the future Tab Manager.
         Rectangle {
-            height: 58px;
-            background: #182237;
+            height: 43px;
+            background: #121b2b;
             HorizontalLayout {
-                padding: 8px;
-                spacing: 8px;
-                Button {
-                    text: "<";
-                    width: 42px;
-                    enabled: root.can-back;
-                    clicked => { root.back(); }
+                padding-left: 14px;
+                padding-right: 16px;
+                padding-top: 5px;
+                padding-bottom: 0px;
+                spacing: 11px;
+
+                Rectangle {
+                    width: 26px;
+                    height: 26px;
+                    border-radius: 8px;
+                    background: #4387f6;
+                    Text {
+                        text: "N";
+                        font-size: 16px;
+                        font-weight: 700;
+                        color: #ffffff;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
                 }
-                Button {
-                    text: ">";
-                    width: 42px;
-                    enabled: root.can-forward;
-                    clicked => { root.forward(); }
+
+                Rectangle {
+                    width: 250px;
+                    height: 36px;
+                    border-radius: 10px;
+                    background: #27344b;
+                    border-width: 1px;
+                    border-color: #394b68;
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 11px;
+                        spacing: 9px;
+                        Rectangle {
+                            width: 8px;
+                            height: 8px;
+                            border-radius: 4px;
+                            background: root.loading ? #76b5ff : #5e9bff;
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: root.loading ? "Loading..." : root.tab-title;
+                            color: #edf3fd;
+                            font-size: 13px;
+                            font-weight: 500;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
                 }
-                Button {
-                    text: "↻";
-                    width: 42px;
-                    clicked => { root.reload(); }
-                }
-                LineEdit {
-                    horizontal-stretch: 1;
-                    text <=> root.address;
-                    placeholder-text: "Enter URL or search";
-                    accepted(text) => { root.navigate(text); }
-                }
-                Button {
-                    text: "Go";
-                    width: 58px;
-                    clicked => { root.navigate(root.address); }
+
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+                Text {
+                    text: "NOVA  /  DESKTOP";
+                    font-size: 10px;
+                    font-weight: 600;
+                    color: #8191ab;
+                    vertical-alignment: center;
                 }
             }
         }
 
+        // Navigation: all visible controls are connected to the Rust engine.
+        Rectangle {
+            height: 60px;
+            background: #1c283c;
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                padding-top: 10px;
+                padding-bottom: 10px;
+                spacing: 9px;
+
+                NavAction {
+                    icon-data: "M 18 6 L 12 12 L 18 18 M 12 12 L 5 12";
+                    available: root.can-back;
+                    activated => { root.back(); }
+                }
+                NavAction {
+                    icon-data: "M 6 6 L 12 12 L 6 18 M 12 12 L 19 12";
+                    available: root.can-forward;
+                    activated => { root.forward(); }
+                }
+                NavAction {
+                    icon-data: "M 20 12 A 8 8 0 1 1 17 6 M 20 5 L 20 12 L 13 12";
+                    activated => { root.reload(); }
+                }
+
+                Rectangle {
+                    width: 1px;
+                    height: 27px;
+                    background: #3e4e65;
+                }
+
+                address-edit := LineEdit {
+                    horizontal-stretch: 1;
+                    height: 38px;
+                    font-size: 14px;
+                    text <=> root.address;
+                    placeholder-text: "Search or enter a web address";
+                    accepted(text) => { root.navigate(text); }
+                }
+
+                go-button := Rectangle {
+                    width: 62px;
+                    height: 38px;
+                    border-radius: 10px;
+                    background: go-hit.pressed ? #2754ac
+                        : go-hit.has-hover ? #5b9afa
+                        : #3c83ed;
+                    border-width: 1px;
+                    border-color: #76aaff;
+                    Text {
+                        text: "Go";
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: #ffffff;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    go-hit := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.navigate(root.address); }
+                    }
+                }
+            }
+        }
+
+        // The page occupies the remaining space; viewport, hit-testing and
+        // rendering continue to follow the actual web-panel size.
         web-panel := Rectangle {
-            background: white;
+            background: #ffffff;
             vertical-stretch: 1;
             browser-focus := FocusScope {
                 width: 100%;
                 height: 100%;
+
                 key-pressed(event) => {
                     if (event.modifiers.control || event.modifiers.alt || event.modifiers.meta) {
                         reject
@@ -88,10 +226,27 @@ export component NovaWindow inherits Window {
                         accept
                     }
                 }
+
+                KeyBinding {
+                    keys: @keys(Control + L);
+                    activated => {
+                        address-edit.focus();
+                        address-edit.select-all();
+                    }
+                }
+                KeyBinding {
+                    keys: @keys(Control + R);
+                    activated => { root.reload(); }
+                }
+                KeyBinding {
+                    keys: @keys(F5);
+                    activated => { root.reload(); }
+                }
+
                 Image {
+                    source: root.page-image;
                     width: 100%;
                     height: 100%;
-                    source: root.page-image;
                     image-fit: fill;
                 }
                 TouchArea {
@@ -116,20 +271,37 @@ export component NovaWindow inherits Window {
 
         Rectangle {
             height: 2px;
-            background: root.loading ? #377dff : #d7dfeb;
+            background: root.loading ? #478bf5 : #dce4ef;
         }
+
         Rectangle {
-            height: 28px;
-            background: #eaf0f8;
+            height: 26px;
+            background: #f0f4fa;
             HorizontalLayout {
-                padding-left: 12px;
-                padding-right: 12px;
+                padding-left: 13px;
+                padding-right: 13px;
+                spacing: 9px;
+
+                Rectangle {
+                    width: 6px;
+                    height: 6px;
+                    border-radius: 3px;
+                    background: root.loading ? #4083ef : #31a47b;
+                }
                 Text {
+                    horizontal-stretch: 1;
                     text: root.status;
-                    color: #344054;
-                    font-size: 12px;
+                    color: #53647b;
+                    font-size: 11px;
                     vertical-alignment: center;
                     overflow: elide;
+                }
+                Text {
+                    text: "NOVA ENGINE";
+                    color: #8390a3;
+                    font-size: 10px;
+                    font-weight: 600;
+                    vertical-alignment: center;
                 }
             }
         }

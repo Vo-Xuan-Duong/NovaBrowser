@@ -75,3 +75,20 @@ rendering and variable fonts before considering it production-ready.
 3. Retained scene layers / GPU compositor instead of repeated PNG conversion.
 4. Downloads, bookmarks, permissions, storage and profiles.
 5. Security isolation, crash handling, improved HTML/CSS/JS compatibility.
+
+
+## Desktop shell styling
+
+The native Slint window now uses a Fluent-inspired two-row browser chrome:
+a single active-tab header (with live document title), compact vector-path
+Back/Forward/Reload controls, a prominent address field and Go action, and
+a low-profile loading/status strip. Disabled navigation actions are visually
+distinguished and are not clickable. The rendered web viewport and mouse
+coordinate mapping are unchanged.
+
+Keyboard shortcuts while the web viewport has focus: Ctrl+L selects the
+address bar, Ctrl+R and F5 reload the page. These shortcuts are currently
+handled by the desktop window, not by a full browser input event pipeline.
+
+The tab strip is intentionally limited to a single active tab: multi-tab
+management must not be implied until the backend supports it.
