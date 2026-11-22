@@ -29,15 +29,15 @@ component ToolbarAction inherits Rectangle {
 
     pointer := TouchArea {
         enabled: root.available;
-        mouse-cursor: pointer;
+        mouse-cursor: MouseCursor.pointer;
         clicked => { root.activated(); }
     }
 }
 
 export component NovaWindow inherits Window {
     title: root.tab-title + " - NovaBrowser";
-    width: 1280px;
-    height: 820px;
+    preferred-width: 1280px;
+    preferred-height: 820px;
     min-width: 740px;
     min-height: 500px;
     background: #ffffff;
@@ -229,7 +229,7 @@ export component NovaWindow inherits Window {
                         y: 0px;
                         width: 30px;
                         height: 100%;
-                        mouse-cursor: text;
+                        mouse-cursor: MouseCursor.text;
                         clicked => {
                             address-edit.focus();
                             address-edit.select-all();
