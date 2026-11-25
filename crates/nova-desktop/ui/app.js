@@ -242,15 +242,100 @@
     document.title = showingSettings ? i18n.t("Settings") + " - NovaBrowser" : `${i18n.t(currentTitle)} - NovaBrowser`;
   }
 
+  // Native tab operations stay in the browser's trusted chrome. Remote
+  // websites never receive a Tauri command bridge.
+  const tabContextMenu = document.createElement("div");
+  tabContextMenu.className = "tab-context-menu";
+  tabContextMenu.setAttribute("role", "menu");
+  tabContextMenu.setAttribute("aria-label", i18n.t("Tab actions"));
+  tabContextMenu.hidden = true;
+  document.body.append(tabContextMenu);
+
+  function closeTabContextMenu() {
+    tabContextMenu.hidden = true;
+    tabContextMenu.replaceChildren();
+  }
+
+  function showTabContextMenu(tab, x, y) {
+    closeTabContextMenu();
+    const addAction = (text, iconName, action, disabled = false, detail = "") => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "tab-context-action";
+      button.setAttribute("role", "menuitem");
+      button.disabled = disabled;
+      if (detail) button.title = i18n.t(detail);
+      const symbol = document.createElement("span");
+      symbol.className = "tab-context-icon";
+      symbol.append(icons.create(iconName));
+      const name = document.createElement("span");
+      name.textContent = i18n.t(text);
+      button.append(symbol, name);
+      button.addEventListener("click", () => {
+        closeTabContextMenu();
+        action();
+      });
+      tabContextMenu.append(button);
+    };
+    if (nativeServo) {
+      if (tab.sleeping) {
+        addAction("Wake tab", "globe", () => {
+          closeSettings();
+          void call("browser_activate_tab", { tabId: tab.id });
+        });
+      } else {
+        addAction("Sleep tab", "moon", () =>
+          void call("browser_sleep_tab", { tabId: tab.id }),
+          tab.active || !/^https?:\/\//i.test(tab.address),
+          tab.active ? "Switch tabs before sleeping the active page" :
+            "The website will reload when the tab is selected again");
+      }
+    }
+    addAction("New tab", "plus", () => void call("browser_new_tab"));
+    if (tab.closable) {
+      addAction("Close tab", "x", () => void call("browser_close_tab", { tabId: tab.id }));
+    }
+    tabContextMenu.hidden = false;
+    // Position inside the viewport even at the right/bottom edge.
+    const width = tabContextMenu.offsetWidth;
+    const height = tabContextMenu.offsetHeight;
+    tabContextMenu.style.left = Math.max(8, Math.min(x, window.innerWidth - width - 8)) + "px";
+    tabContextMenu.style.top = Math.max(8, Math.min(y, window.innerHeight - height - 8)) + "px";
+    tabContextMenu.querySelector("button:not(:disabled)")?.focus();
+  }
+  document.addEventListener("pointerdown", (event) => {
+    if (!tabContextMenu.hidden && !tabContextMenu.contains(event.target)) {
+      closeTabContextMenu();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !tabContextMenu.hidden) {
+      event.preventDefault();
+      closeTabContextMenu();
+    }
+  });
+
   function renderTabs(tabs) {
+    closeTabContextMenu();
     lastTabs = [...tabs];
     tabList.replaceChildren();
     for (const tab of tabs) {
       const item = document.createElement("div");
-      item.className = `tab${tab.active ? " is-active" : ""}`;
+      item.className = `tab${tab.active ? " is-active" : ""}${tab.sleeping ? " is-sleeping" : ""}`;
       item.setAttribute("role", "tab");
       item.setAttribute("aria-selected", String(tab.active));
       item.tabIndex = tab.active ? 0 : -1;
+      item.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        showTabContextMenu(tab, event.clientX, event.clientY);
+      });
+      item.addEventListener("keydown", (event) => {
+        if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+          event.preventDefault();
+          const rect = item.getBoundingClientRect();
+          showTabContextMenu(tab, rect.left + 12, rect.bottom - 4);
+        }
+      });
       item.addEventListener("click", (event) => {
         if (!event.target.closest(".tab-close")) {
           closeSettings();
@@ -261,12 +346,19 @@
       const mark = document.createElement("span");
       mark.className = "brand-mark";
       mark.setAttribute("aria-hidden", "true");
-      mark.append(icons.create(tab.active && settingsView.isOpen() ? "settings-2" : "globe"));
+      mark.append(icons.create(tab.sleeping ? "moon" :
+        tab.active && settingsView.isOpen() ? "settings-2" : "globe"));
       const title = document.createElement("span");
       title.className = "tab-title";
       title.textContent = tab.active && settingsView.isOpen()
         ? i18n.t("Settings") : i18n.t(tab.title || "New tab");
       if (tab.active) title.id = "tab-title";
+      if (tab.sleeping) {
+        item.title = i18n.t("Sleeping tab — opens when selected");
+        item.setAttribute("aria-label", i18n.t("Sleeping tab: {title}", {
+          title: tab.title || i18n.t("New tab"),
+        }));
+      }
       const close = document.createElement("button");
       close.className = "tab-close";
       close.type = "button";
