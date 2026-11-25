@@ -77,6 +77,12 @@ struct BrowserTab {
     servo_can_back: bool,
     #[cfg(all(feature = "servo-embed", target_os = "windows"))]
     servo_can_forward: bool,
+    // Preserve the live Servo page when user visits Nova's internal Home.
+    // Back restores the same WebView (scroll/forms), not a new network load.
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    servo_home_back: Option<(String, String)>,
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    servo_home_forward: bool,
 }
 
 impl BrowserTab {
@@ -99,6 +105,10 @@ impl BrowserTab {
             servo_can_back: false,
             #[cfg(all(feature = "servo-embed", target_os = "windows"))]
             servo_can_forward: false,
+            #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+            servo_home_back: None,
+            #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+            servo_home_forward: false,
         }
     }
 
@@ -195,8 +205,16 @@ fn publish_buttons(app: &AppHandle, tab: &BrowserTab) {
     #[cfg(all(feature = "servo-embed", target_os = "windows"))]
     {
         let _ = app.emit("browser-history", HistoryUpdate {
-            can_back: tab.servo_can_back,
-            can_forward: tab.servo_can_forward,
+            can_back: if tab.address == "nova://home" {
+                tab.servo_home_back.is_some()
+            } else {
+                tab.servo_can_back
+            },
+            can_forward: if tab.address == "nova://home" {
+                false
+            } else {
+                tab.servo_home_forward || tab.servo_can_forward
+            },
         });
         return;
     }
@@ -258,6 +276,13 @@ fn navigate(
     // Internal Home is part of the trusted Tauri chrome, never a network page
     // or JavaScript payload passed to the Obscura engine.
     if target == "nova://home" {
+        #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+        {
+            if tab.address.starts_with("http://") || tab.address.starts_with("https://") {
+                tab.servo_home_back = Some((tab.address.clone(), tab.title.clone()));
+            }
+            tab.servo_home_forward = false;
+        }
         if let Some(index) = history_index {
             tab.history.select(index);
         } else {
@@ -302,6 +327,8 @@ fn navigate(
         } else {
             tab.history.record(target.to_string());
         }
+        tab.servo_home_back = None;
+        tab.servo_home_forward = false;
         tab.address = target.to_owned();
         tab.title = "Loading...".to_string();
         tab.restore_url = None;
@@ -649,6 +676,24 @@ fn engine_thread(
             }
             Ok(Command::Back) => {
                 #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+                {
+                    let restored = if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
+                        if tab.address == "nova://home" {
+                            if let Some((url, title)) = tab.servo_home_back.take() {
+                                tab.address = url;
+                                tab.title = title;
+                                tab.servo_home_forward = true;
+                                true
+                            } else { false }
+                        } else { false }
+                    } else { false };
+                    if restored {
+                        publish_active_tab(&app, &mut tabs, &active_id, viewport);
+                        persist_session(&browser_data, &tabs, &active_id);
+                        continue;
+                    }
+                }
+                #[cfg(all(feature = "servo-embed", target_os = "windows"))]
                 if let Some(bridge) = app.try_state::<servo_embed::ServoBridge>() {
                     let _ = bridge.send(servo_embed::Control::Back { tab: active_id.clone() });
                     continue;
@@ -662,6 +707,20 @@ fn engine_thread(
                 }
             }
             Ok(Command::Forward) => {
+                #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+                {
+                    let to_home = tabs.iter().any(|tab|
+                        tab.id == active_id && tab.address != "nova://home"
+                            && tab.servo_home_forward);
+                    if to_home {
+                        if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
+                            navigate(tab, &runtime, viewport, &app, &browser_data, "nova://home", None);
+                        }
+                        publish_tab_list(&app, &tabs, &active_id);
+                        persist_session(&browser_data, &tabs, &active_id);
+                        continue;
+                    }
+                }
                 #[cfg(all(feature = "servo-embed", target_os = "windows"))]
                 if let Some(bridge) = app.try_state::<servo_embed::ServoBridge>() {
                     let _ = bridge.send(servo_embed::Control::Forward { tab: active_id.clone() });
@@ -765,6 +824,15 @@ fn engine_thread(
             Ok(Command::ServoLocation(tab_id, url)) => {
                 if engine_api::external_page_url(&url).is_err() { continue; }
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                    // The hidden WebView may redirect or finish loading after
+                    // its tab switched to nova://home. Preserve the trusted
+                    // internal route and update only its return target.
+                    if tab.address == "nova://home" {
+                        if let Some((previous_url, _)) = tab.servo_home_back.as_mut() {
+                            *previous_url = url;
+                        }
+                        continue;
+                    }
                     if tab.address != url {
                         tab.history.record(url.clone());
                         tab.address = url.clone();
