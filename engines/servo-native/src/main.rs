@@ -27,7 +27,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton as WinitButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
-use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey};
+use winit::keyboard::{Key as WinitKey, KeyCode, ModifiersState, PhysicalKey};
 use winit::raw_window_handle::{
     HasDisplayHandle, HasWindowHandle, RawWindowHandle, Win32WindowHandle,
 };
@@ -142,7 +142,9 @@ impl servo::WebViewDelegate for Delegate {
     fn request_navigation(&self, _view: WebView, request: NavigationRequest) {
         // A remote document must not navigate its view to privileged local
         // schemes. In particular, file:// must never become a browser tab.
-        if matches!(request.url.scheme(), "http" | "https" | "about") {
+        if matches!(request.url.scheme(), "http" | "https")
+            || request.url.as_str() == "about:blank"
+        {
             request.allow();
         } else {
             request.deny();
@@ -231,7 +233,9 @@ impl State {
                 self.window.set_outer_position(PhysicalPosition::new(0, top as i32));
                 let size = PhysicalSize::new(width.max(1), height.max(1));
                 let _ = self.window.request_inner_size(size);
-                for page in self.pages.values() { page.resize(size); }
+                // All WebViews share one rendering context. Resizing one
+                // active view updates the context used by every tab.
+                if let Some(page) = self.active_page() { page.resize(size); }
                 self.visible = visible;
                 self.show_active();
             }
@@ -341,7 +345,9 @@ impl ApplicationHandler<Event> for Embedder {
         match event {
             WindowEvent::CloseRequested => state.window.set_visible(false),
             WindowEvent::Resized(size) => {
-                for page in state.pages.values() { page.resize(size); }
+                if size.width > 0 && size.height > 0 {
+                    if let Some(page) = state.active_page() { page.resize(size); }
+                }
             }
             WindowEvent::RedrawRequested => {
                 if state.visible {
@@ -390,12 +396,17 @@ impl ApplicationHandler<Event> for Embedder {
                 if event.state == ElementState::Pressed {
                     let control = state.modifiers.control_key();
                     let alt = state.modifiers.alt_key();
-                    let key_text = event.logical_key.to_text().unwrap_or("").to_lowercase();
-                    if control && key_text == "l" {
+                    // Physical key codes are stable for browser accelerators,
+                    // even when Ctrl changes the logical text value.
+                    let key_code = match event.physical_key {
+                        PhysicalKey::Code(code) => Some(code),
+                        _ => None,
+                    };
+                    if control && key_code == Some(KeyCode::KeyL) {
                         emit(json!({"event":"focus_address"}));
                         return;
                     }
-                    if control && key_text == "t" {
+                    if control && key_code == Some(KeyCode::KeyT) {
                         let event = if state.modifiers.shift_key() {
                             "reopen_tab"
                         } else {
@@ -404,21 +415,21 @@ impl ApplicationHandler<Event> for Embedder {
                         emit(json!({"event":event}));
                         return;
                     }
-                    if control && key_text == "w" {
+                    if control && key_code == Some(KeyCode::KeyW) {
                         if let Some(tab) = state.active.as_ref() {
                             emit(json!({"event":"close_tab","tab":tab}));
                         }
                         return;
                     }
-                    if control && key_text == "r" {
+                    if control && key_code == Some(KeyCode::KeyR) {
                         emit(json!({"event":"reload"}));
                         return;
                     }
-                    if alt && matches!(event.logical_key.as_ref(), WinitKey::Named(NamedKey::ArrowLeft)) {
+                    if alt && key_code == Some(KeyCode::ArrowLeft) {
                         emit(json!({"event":"back"}));
                         return;
                     }
-                    if alt && matches!(event.logical_key.as_ref(), WinitKey::Named(NamedKey::ArrowRight)) {
+                    if alt && key_code == Some(KeyCode::ArrowRight) {
                         emit(json!({"event":"forward"}));
                         return;
                     }

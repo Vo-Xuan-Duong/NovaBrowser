@@ -66,6 +66,15 @@ assert.match(renderer, /WheelDelta \{ x, y, z: 0\.0, mode \},\s*state\.cursor\.i
   "Servo 0.8 WheelEvent::new accepts delta and point only");
 assert.doesNotMatch(renderer, /\bModifiers::default\(\)/,
   "Servo 0.8 WheelEvent no longer accepts a third modifiers argument");
+assert.match(renderer, /PhysicalKey::Code\(code\)/,
+  "Native browser keyboard shortcuts should use layout-independent physical keys");
+assert.match(renderer, /KeyCode::KeyL/,
+  "Ctrl+L must work even when Ctrl changes logical text input");
+assert.match(renderer, /request\.url\.as_str\(\) == "about:blank"/,
+  "Only about:blank should be permitted among internal navigation schemes");
+assert.match(renderer, /if let Some\(page\) = self\.active_page\(\) \{ page\.resize\(size\); \}/,
+  "Shared Servo rendering context should be resized once per layout");
+
 
 assert.match(browser, /page: Option<Page>/,
   "Servo tabs must not allocate unused Obscura V8 pages");
