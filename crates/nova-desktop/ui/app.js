@@ -292,9 +292,15 @@
             "The website will reload when the tab is selected again");
       }
     }
-    addAction("New tab", "plus", () => void call("browser_new_tab"));
+    addAction("New tab", "plus", () => {
+      closeSettings();
+      void call("browser_new_tab");
+    });
     if (tab.closable) {
-      addAction("Close tab", "x", () => void call("browser_close_tab", { tabId: tab.id }));
+      addAction("Close tab", "x", () => {
+        if (tab.active) closeSettings();
+        void call("browser_close_tab", { tabId: tab.id });
+      });
     }
     tabContextMenu.hidden = false;
     // Position inside the viewport even at the right/bottom edge.
