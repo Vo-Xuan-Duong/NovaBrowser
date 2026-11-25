@@ -8,6 +8,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command as ProcessCommand, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -30,9 +31,11 @@ pub enum Control {
 struct Process {
     stdin: Mutex<ChildStdin>,
     child: Mutex<Child>,
+    alive: Arc<AtomicBool>,
 }
 impl Drop for Process {
     fn drop(&mut self) {
+        self.alive.store(false, Ordering::Release);
         // Never leave an orphan with a window parented to NovaBrowser's HWND.
         if let Ok(mut child) = self.child.lock() {
             let _ = child.kill();
@@ -47,6 +50,9 @@ pub struct ServoBridge {
 }
 impl ServoBridge {
     pub fn send(&self, command: Control) -> Result<(), String> {
+        if !self.process.alive.load(Ordering::Acquire) {
+            return Err("Servo rendering process is not running".into());
+        }
         let msg = match command {
             Control::Navigate { tab, url } => json!({"op":"navigate","tab":tab,"url":url.to_string()}),
             Control::Select { tab } => json!({"op":"select","tab":tab}),
@@ -123,12 +129,16 @@ pub fn start(app: &AppHandle, browser: mpsc::Sender<Command>) -> Result<ServoBri
         .map_err(|e| format!("Cannot start Servo renderer: {e}"))?;
     let stdin = child.stdin.take().ok_or("Missing Servo command pipe")?;
     let stdout = child.stdout.take().ok_or("Missing Servo event pipe")?;
-    let process = Arc::new(Process { stdin: Mutex::new(stdin), child: Mutex::new(child) });
+    let alive = Arc::new(AtomicBool::new(true));
+    let process = Arc::new(Process {
+        stdin: Mutex::new(stdin), child: Mutex::new(child), alive: alive.clone()
+    });
     let (tx, rx) = mpsc::sync_channel(1);
     std::thread::Builder::new()
         .name("nova-servo-events".into())
         .spawn(move || {
             let mut startup = Some(tx);
+            let mut fatal = None;
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };
                 let Some(payload) = line.strip_prefix("NOVA\t") else { continue };
@@ -138,13 +148,19 @@ pub fn start(app: &AppHandle, browser: mpsc::Sender<Command>) -> Result<ServoBri
                     Ok(true) => { if let Some(tx) = startup.take() { let _ = tx.send(Ok(())); } }
                     Ok(false) => {}
                     Err(error) => {
-                        if let Some(tx) = startup.take() { let _ = tx.send(Err(error)); }
+                        fatal = Some(error);
                         break;
                     }
                 }
             }
+            alive.store(false, Ordering::Release);
+            let reason = fatal.unwrap_or_else(|| "renderer process closed its event pipe".into());
             if let Some(tx) = startup.take() {
-                let _ = tx.send(Err("Servo renderer quit during startup".into()));
+                let _ = tx.send(Err(format!("Servo renderer quit during startup: {reason}")));
+            } else {
+                // Surface unexpected sidecar termination in the existing
+                // NovaBrowser status UI. Never silently strand a loading tab.
+                let _ = browser.send(Command::ServoExited(reason));
             }
         }).map_err(|e| e.to_string())?;
     match rx.recv_timeout(Duration::from_secs(30)) {

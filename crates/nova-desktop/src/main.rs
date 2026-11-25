@@ -52,6 +52,8 @@ enum Command {
     #[cfg(all(feature = "servo-embed", target_os = "windows"))]
     ServoError(String, String),
     #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    ServoExited(String),
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
     ServoFocusAddress,
     Shutdown,
 }
@@ -809,6 +811,10 @@ fn engine_thread(
                     let _ = chrome.set_focus();
                 }
                 let _ = app.emit("browser-focus-address", ());
+            }
+            #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+            Ok(Command::ServoExited(reason)) => {
+                report(&app, None, format!("Navigation error: Servo renderer exited: {reason}"), false);
             }
             Ok(Command::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                 persist_session(&browser_data, &tabs, &active_id);
