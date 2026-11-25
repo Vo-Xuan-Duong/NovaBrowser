@@ -35,6 +35,7 @@ enum Command {
     NewTab,
     ReopenTab,
     CloseTab(String),
+    SleepTab(String),
     ActivateTab(String),
     Back,
     Forward,
@@ -153,6 +154,7 @@ struct TabInfo {
     address: String,
     active: bool,
     closable: bool,
+    sleeping: bool,
 }
 
 fn report(app: &AppHandle, address: Option<String>, message: String, loading: bool) {
@@ -196,6 +198,8 @@ fn publish_tab_list(app: &AppHandle, tabs: &[BrowserTab], active_id: &str) {
             address: tab.address.clone(),
             active: tab.id == active_id,
             closable,
+            sleeping: tab.restore_url.is_some()
+                && (tab.address.starts_with("https://") || tab.address.starts_with("http://")),
         })
         .collect();
     let _ = app.emit("browser-tabs", items);
@@ -650,6 +654,37 @@ fn engine_thread(
                     }
                 }
             }
+            Ok(Command::SleepTab(id)) => {
+                // Only background Servo website views can be discarded.
+                // The browser owns URL/title metadata and lazily creates a
+                // fresh Servo WebView when the user switches back to the tab.
+                #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+                if id != active_id {
+                    let candidate = tabs.iter().position(|tab| tab.id == id
+                        && tab.restore_url.is_none()
+                        && (tab.address.starts_with("http://")
+                            || tab.address.starts_with("https://")));
+                    if let Some(index) = candidate {
+                        if let Some(bridge) = app.try_state::<servo_embed::ServoBridge>() {
+                            match bridge.send(servo_embed::Control::Close { tab: id.clone() }) {
+                                Ok(()) => {
+                                    let tab = &mut tabs[index];
+                                    tab.restore_url = Some(tab.address.clone());
+                                    tab.servo_can_back = false;
+                                    tab.servo_can_forward = false;
+                                    tab.servo_last_recorded_url = None;
+                                    publish_tab_list(&app, &tabs, &active_id);
+                                    persist_session(&browser_data, &tabs, &active_id);
+                                }
+                                Err(error) => report(&app, None,
+                                    format!("Navigation error: Could not sleep tab: {error}"), false),
+                            }
+                        }
+                    }
+                }
+                #[cfg(not(all(feature = "servo-embed", target_os = "windows")))]
+                let _ = id;
+            }
             Ok(Command::ReopenTab) => {
                 if tabs.len() < MAX_TABS {
                     if let Some(saved) = recently_closed.pop() {
@@ -833,6 +868,9 @@ fn engine_thread(
             Ok(Command::ServoLocation(tab_id, url)) => {
                 if engine_api::external_page_url(&url).is_err() { continue; }
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                    // Ignore late notifications from WebViews that were closed
+                    // when their background tabs went to sleep.
+                    if tab.restore_url.is_some() { continue; }
                     // The hidden WebView may redirect or finish loading after
                     // its tab switched to nova://home. Preserve the trusted
                     // internal route and update only its return target.
@@ -866,6 +904,7 @@ fn engine_thread(
             #[cfg(all(feature = "servo-embed", target_os = "windows"))]
             Ok(Command::ServoTitle(tab_id, title)) => {
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                    if tab.restore_url.is_some() { continue; }
                     let title = if title.trim().is_empty() {
                         "Untitled page".to_string()
                     } else { title };
@@ -890,6 +929,7 @@ fn engine_thread(
             #[cfg(all(feature = "servo-embed", target_os = "windows"))]
             Ok(Command::ServoHistory(tab_id, back, forward)) => {
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                    if tab.restore_url.is_some() { continue; }
                     tab.servo_can_back = back;
                     tab.servo_can_forward = forward;
                     if tab_id == active_id { publish_buttons(&app, tab); }
@@ -954,6 +994,19 @@ fn send_command(state: &State<'_, EngineState>, command: Command) -> Result<(), 
         .commands
         .send(command)
         .map_err(|error| format!("Browser engine stopped: {error}"))
+}
+
+#[tauri::command]
+fn browser_sleep_tab(state: State<'_, EngineState>, tab_id: String) -> Result<(), String> {
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    {
+        return send_command(&state, Command::SleepTab(tab_id));
+    }
+    #[cfg(not(all(feature = "servo-embed", target_os = "windows")))]
+    {
+        let _ = (state, tab_id);
+        Err("Sleeping tabs requires native Servo rendering".into())
+    }
 }
 
 #[tauri::command]
@@ -1231,6 +1284,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             browser_new_tab,
             browser_reopen_tab,
             browser_close_tab,
+            browser_sleep_tab,
             browser_activate_tab,
             browser_back,
             browser_forward,
