@@ -400,6 +400,33 @@ mod tests {
     }
 
     #[test]
+    fn updating_a_page_title_preserves_visit_identity_and_cleared_history() {
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "nova-visit-title-{}-{stamp}.json", std::process::id()
+        ));
+        let url = "https://example.org/article";
+        let store = BrowserDataStore::load(path.clone());
+        store.record_visit("Loading...".into(), url.into()).unwrap();
+        let timestamp = store.history()[0].visited_at;
+
+        store.update_visit_title(url, "Example article").unwrap();
+        store.update_visit_title(url, "Example article").unwrap();
+        let visits = store.history();
+        assert_eq!(visits.len(), 1, "a title update must not add a second visit");
+        assert_eq!(visits[0].title, "Example article");
+        assert_eq!(visits[0].visited_at, timestamp);
+
+        store.clear_history().unwrap();
+        store.update_visit_title(url, "Late title from Servo").unwrap();
+        assert!(store.history().is_empty(), "late title updates cannot restore deleted visits");
+
+        let loaded = BrowserDataStore::load(path.clone());
+        assert!(loaded.history().is_empty());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
     fn clearing_bookmarks_does_not_clear_history() {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let path = std::env::temp_dir().join(format!("nova-clear-bookmarks-{}-{stamp}.json", std::process::id()));

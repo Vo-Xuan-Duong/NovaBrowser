@@ -72,4 +72,14 @@ assert.match(source, /if \(nativeServo\) return; \/\/ Servo receives native mous
 assert.match(source, /if \(nativeServo\) return;\s*event\.preventDefault\(\)/);
 assert.match(source, /listen\("browser-frame", \(\{ payload \}\) => \{\s*if \(nativeServo\) return;/);
 
+const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+const settings = fs.readFileSync(path.join(__dirname, "..", "settings.js"), "utf8");
+assert.doesNotThrow(() => new Function(settings));
+assert.match(html, /id="settings-engine-value"/);
+assert.match(html, /id="settings-engine-description"/);
+assert.match(html, /id="settings-engine-status"/);
+assert.match(settings, /invoke\("browser_get_engine_info"\)/);
+assert.match(settings, /engine\?\.mode === "servo"/);
+assert.match(settings, /engine\?\.running/);
+
 console.log("NovaBrowser native Servo surface contracts passed");

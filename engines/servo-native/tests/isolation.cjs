@@ -12,6 +12,8 @@ const workspace = load("Cargo.toml");
 const engine = load("engines/servo-native/Cargo.toml");
 const adapter = load("crates/nova-desktop/src/servo_embed.rs");
 const renderer = load("engines/servo-native/src/main.rs");
+const browser = load("crates/nova-desktop/src/main.rs");
+const storage = load("crates/nova-desktop/src/storage.rs");
 const launcher = load("run-nova-servo.cmd");
 
 assert.match(desktop, /^servo-embed\s*=\s*\[\s*\]\s*$/m,
@@ -64,6 +66,23 @@ assert.match(renderer, /WheelDelta \{ x, y, z: 0\.0, mode \},\s*state\.cursor\.i
   "Servo 0.8 WheelEvent::new accepts delta and point only");
 assert.doesNotMatch(renderer, /\bModifiers::default\(\)/,
   "Servo 0.8 WheelEvent no longer accepts a third modifiers argument");
+
+assert.match(browser, /page: Option<Page>/,
+  "Servo tabs must not allocate unused Obscura V8 pages");
+assert.match(browser, /let context = if cfg!\(all\(feature = "servo-embed"/,
+  "Skip BrowserContext initialization when native Servo renders websites");
+assert.match(browser, /servo_last_recorded_url/,
+  "Track actual Servo visits even when the requested and final URL match");
+assert.match(browser, /servo_home_back/,
+  "Preserve the live website when navigating to internal Home");
+assert.match(browser, /ServoExited\(String\)/,
+  "A child-process crash must reach the trusted NovaBrowser status UI");
+assert.match(adapter, /alive\.store\(false, Ordering::Release\)/,
+  "Renderer EOF must invalidate the IPC bridge");
+assert.match(browser, /fn browser_get_engine_info\(/,
+  "About must report the actual active engine");
+assert.match(storage, /pub fn update_visit_title\(/,
+  "History titles must be updated without recording a duplicate page visit");
 
 assert.match(launcher, /engines\\servo-native\\Cargo\.toml/);
 assert.match(launcher, /cargo run -p nova-desktop --release --features servo-embed/);
