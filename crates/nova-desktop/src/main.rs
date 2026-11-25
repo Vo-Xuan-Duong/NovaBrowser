@@ -65,7 +65,8 @@ struct BrowserTab {
     id: String,
     title: String,
     address: String,
-    page: Page,
+    // The native Servo mode owns webpage JS; the legacy V8 page is absent.
+    page: Option<Page>,
     history: NavigationHistory,
     last_frame: Option<u64>,
     restore_url: Option<String>,
@@ -77,9 +78,12 @@ struct BrowserTab {
 }
 
 impl BrowserTab {
-    fn new(id: String, context: Arc<BrowserContext>, viewport: Viewport) -> Self {
-        let mut page = Page::new(id.clone(), context);
-        page.set_viewport(viewport.css_size());
+    fn new(id: String, context: Option<Arc<BrowserContext>>, viewport: Viewport) -> Self {
+        let page = context.map(|context| {
+            let mut page = Page::new(id.clone(), context);
+            page.set_viewport(viewport.css_size());
+            page
+        });
         Self {
             id,
             title: "New tab".to_string(),
@@ -96,7 +100,7 @@ impl BrowserTab {
         }
     }
 
-    fn restored(id: String, context: Arc<BrowserContext>, viewport: Viewport, saved: SessionTab) -> Self {
+    fn restored(id: String, context: Option<Arc<BrowserContext>>, viewport: Viewport, saved: SessionTab) -> Self {
         let mut tab = Self::new(id, context, viewport);
         tab.title = if saved.title.is_empty() { "Untitled page".into() } else { saved.title };
         tab.address = saved.url.clone();
@@ -307,19 +311,19 @@ fn navigate(
     }
     report(app, None, format!("Loading {target}"), true);
     let result: Result<(), String> = runtime.block_on(async {
-        tab.page
+        tab.page.as_mut().expect("legacy page only")
             .navigate_with_wait(target, WaitUntil::Load)
             .await
             .map_err(|error| error.to_string())?;
-        tab.page.settle(180).await;
-        tab.page.prepare_screenshot_resources(300).await;
+        tab.page.as_mut().expect("legacy page only").settle(180).await;
+        tab.page.as_mut().expect("legacy page only").prepare_screenshot_resources(300).await;
         Ok(())
     });
 
     match result {
         Ok(()) => {
-            let url = tab.page.url_string();
-            let title = document_title(&mut tab.page);
+            let url = tab.page.as_mut().expect("legacy page only").url_string();
+            let title = document_title(tab.page.as_mut().expect("legacy page only"));
             let blocked_query = blocked_google_search_query(target, &url);
             if let Some(index) = history_index {
                 tab.history.select(index);
@@ -353,7 +357,7 @@ fn navigate(
             if tab.blocked_search.is_some() {
                 let _ = app.emit("browser-frame", String::new());
             } else {
-                capture(&tab.page, viewport, app, &mut tab.last_frame);
+                capture(tab.page.as_ref().expect("legacy page only"), viewport, app, &mut tab.last_frame);
             }
         }
         Err(error) => report(app, None, format!("Navigation error: {error}"), false),
@@ -362,7 +366,7 @@ fn navigate(
 
 /// Observe same-document navigation where the engine has updated its URL.
 fn sync_history(tab: &mut BrowserTab, app: &AppHandle, browser_data: &BrowserDataStore) -> bool {
-    let url = tab.page.url_string();
+    let url = tab.page.as_mut().expect("legacy page only").url_string();
     if (url.starts_with("https://") || url.starts_with("http://"))
         && tab.history.current() != Some(url.as_str())
     {
@@ -371,7 +375,7 @@ fn sync_history(tab: &mut BrowserTab, app: &AppHandle, browser_data: &BrowserDat
         // provides the original search query in that case.
         let blocked = blocked_google_search_query(&tab.address, &url);
         tab.history.record(url.clone());
-        let title = document_title(&mut tab.page);
+        let title = document_title(tab.page.as_mut().expect("legacy page only"));
         tab.address = url.clone();
         tab.title = if blocked.is_some() {
             "Google search unavailable".to_string()
@@ -427,7 +431,7 @@ fn publish_active_tab(app: &AppHandle, tabs: &mut [BrowserTab], active_id: &str,
     if tab.blocked_search.is_some() {
         let _ = app.emit("browser-frame", String::new());
     } else if tab.address.starts_with("http://") || tab.address.starts_with("https://") {
-        capture(&tab.page, viewport, app, &mut tab.last_frame);
+        capture(tab.page.as_ref().expect("legacy page only"), viewport, app, &mut tab.last_frame);
     } else {
         let _ = app.emit("browser-frame", String::new());
     }
@@ -462,7 +466,13 @@ fn engine_thread(
 
     // All page isolates stay on this thread. Tabs share cookies and the HTTP
     // client through BrowserContext while keeping their DOM and JS realm apart.
-    let context = Arc::new(BrowserContext::new("nova-default".to_owned()));
+    // Skip BrowserContext and all unused V8-backed Page allocations when
+    // external websites are rendered exclusively by the Servo sidecar.
+    let context = if cfg!(all(feature = "servo-embed", target_os = "windows")) {
+        None
+    } else {
+        Some(Arc::new(BrowserContext::new("nova-default".to_owned())))
+    };
     let mut viewport = Viewport::DEFAULT;
     // Recover tab metadata without opening every saved website at once.
     // Inactive tabs are restored lazily when the user selects them.
@@ -543,7 +553,7 @@ fn engine_thread(
                     if tab.blocked_search.take().is_some() {
                         publish_search_blocked(&app, tab);
                         tab.last_frame = None;
-                        capture(&tab.page, viewport, &app, &mut tab.last_frame);
+                        capture(tab.page.as_ref().expect("legacy page only"), viewport, &app, &mut tab.last_frame);
                     }
                 }
             }
@@ -686,14 +696,14 @@ fn engine_thread(
                     if next.width != viewport.width || next.height != viewport.height {
                         viewport = next;
                         for tab in &mut tabs {
-                            tab.page.set_viewport(next.css_size());
+                            tab.page.as_mut().expect("legacy page only").set_viewport(next.css_size());
                             tab.last_frame = None;
                         }
                         if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == active_id) {
                             if tab.blocked_search.is_none()
                                 && (tab.address.starts_with("http://") || tab.address.starts_with("https://"))
                             {
-                                capture(&tab.page, next, &app, &mut tab.last_frame);
+                                capture(tab.page.as_ref().expect("legacy page only"), next, &app, &mut tab.last_frame);
                             }
                         }
                     }
@@ -705,11 +715,11 @@ fn engine_thread(
                     if tab.blocked_search.is_none()
                         && (tab.address.starts_with("http://") || tab.address.starts_with("https://"))
                     {
-                        input::click(&mut tab.page, viewport, x, y);
-                        runtime.block_on(tab.page.settle(60));
+                        input::click(tab.page.as_mut().expect("legacy page only"), viewport, x, y);
+                        runtime.block_on(tab.page.as_mut().expect("legacy page only").settle(60));
                         let history_changed = sync_history(tab, &app, &browser_data);
                         if tab.blocked_search.is_none() {
-                            capture(&tab.page, viewport, &app, &mut tab.last_frame);
+                            capture(tab.page.as_ref().expect("legacy page only"), viewport, &app, &mut tab.last_frame);
                         }
                         publish_tab_list(&app, &tabs, &active_id);
                         if history_changed {
@@ -724,9 +734,9 @@ fn engine_thread(
                     if tab.blocked_search.is_none()
                         && (tab.address.starts_with("http://") || tab.address.starts_with("https://"))
                     {
-                        input::scroll(&mut tab.page, viewport, x, y, dx, dy);
-                        runtime.block_on(tab.page.settle(40));
-                        capture(&tab.page, viewport, &app, &mut tab.last_frame);
+                        input::scroll(tab.page.as_mut().expect("legacy page only"), viewport, x, y, dx, dy);
+                        runtime.block_on(tab.page.as_mut().expect("legacy page only").settle(40));
+                        capture(tab.page.as_ref().expect("legacy page only"), viewport, &app, &mut tab.last_frame);
                     }
                 }
             }
@@ -736,11 +746,11 @@ fn engine_thread(
                     if tab.blocked_search.is_none()
                         && (tab.address.starts_with("http://") || tab.address.starts_with("https://"))
                     {
-                        input::key(&mut tab.page, &key);
-                        runtime.block_on(tab.page.settle(40));
+                        input::key(tab.page.as_mut().expect("legacy page only"), &key);
+                        runtime.block_on(tab.page.as_mut().expect("legacy page only").settle(40));
                         let history_changed = sync_history(tab, &app, &browser_data);
                         if tab.blocked_search.is_none() {
-                            capture(&tab.page, viewport, &app, &mut tab.last_frame);
+                            capture(tab.page.as_ref().expect("legacy page only"), viewport, &app, &mut tab.last_frame);
                         }
                         publish_tab_list(&app, &tabs, &active_id);
                         if history_changed {
@@ -811,12 +821,12 @@ fn engine_thread(
                         && (tab.address.starts_with("http://") || tab.address.starts_with("https://"))
                     {
                         runtime.block_on(async {
-                            tab.page.settle(50).await;
-                            tab.page.prepare_screenshot_resources(75).await;
+                            tab.page.as_mut().expect("legacy page only").settle(50).await;
+                            tab.page.as_mut().expect("legacy page only").prepare_screenshot_resources(75).await;
                         });
                         let history_changed = sync_history(tab, &app, &browser_data);
                         if tab.blocked_search.is_none() {
-                            capture(&tab.page, viewport, &app, &mut tab.last_frame);
+                            capture(tab.page.as_ref().expect("legacy page only"), viewport, &app, &mut tab.last_frame);
                         }
                         publish_tab_list(&app, &tabs, &active_id);
                         if history_changed {
