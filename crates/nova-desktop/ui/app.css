@@ -1369,3 +1369,64 @@ button { color: inherit; }
   .search-blocked { padding: 32px 19px; }
   .search-blocked h1 { font-size: 20px; }
 }
+
+/* Browser-owned tab menu: never provided to remote website content. */
+.tab.is-sleeping .brand-mark { background: #687487; color: #fff; }
+.tab.is-sleeping .tab-title { opacity: .72; }
+.tab-context-menu[hidden] { display: none !important; }
+.tab-context-menu {
+  position: fixed;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  min-width: 210px;
+  max-width: calc(100vw - 16px);
+  padding: 5px;
+  border: 1px solid #dfe3ea;
+  border-radius: 10px;
+  background: #fff;
+  color: #242933;
+  box-shadow: 0 9px 26px rgb(24 35 52 / 18%);
+  -webkit-app-region: no-drag;
+}
+.tab-context-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  white-space: nowrap;
+  font-size: 13px;
+  cursor: default;
+}
+.tab-context-icon {
+  display: inline-flex;
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+}
+.tab-context-icon .nova-icon { width: 17px; height: 17px; }
+.tab-context-action:hover:not(:disabled),
+.tab-context-action:focus-visible:not(:disabled) {
+  outline: none;
+  background: #eaf1fc;
+  color: #1456ad;
+}
+.tab-context-action:disabled { opacity: .46; }
+:root[data-theme="dark"] .tab.is-sleeping .brand-mark { background: #596779; }
+:root[data-theme="dark"] .tab-context-menu {
+  background: #282e38;
+  border-color: #465060;
+  color: #e4e9f2;
+  box-shadow: 0 9px 26px rgb(0 0 0 / 35%);
+}
+:root[data-theme="dark"] .tab-context-action:hover:not(:disabled),
+:root[data-theme="dark"] .tab-context-action:focus-visible:not(:disabled) {
+  background: #344962;
+  color: #d7e8ff;
+}

@@ -258,6 +258,7 @@
 
   function showTabContextMenu(tab, x, y) {
     closeTabContextMenu();
+    tabContextMenu.setAttribute("aria-label", i18n.t("Tab actions"));
     const addAction = (text, iconName, action, disabled = false, detail = "") => {
       const button = document.createElement("button");
       button.type = "button";
