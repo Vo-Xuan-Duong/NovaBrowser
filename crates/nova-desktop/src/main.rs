@@ -56,6 +56,10 @@ enum Command {
     ServoExited(String),
     #[cfg(all(feature = "servo-embed", target_os = "windows"))]
     ServoFocusAddress,
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    ServoCycleTab(bool),
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    ServoActivateIndex(usize),
     Shutdown,
 }
 
@@ -718,6 +722,30 @@ fn engine_thread(
                     persist_session(&browser_data, &tabs, &active_id);
                 }
             }
+            #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+            Ok(Command::ServoCycleTab(backwards)) => {
+                if tabs.len() > 1 {
+                    let current = tabs.iter().position(|tab| tab.id == active_id).unwrap_or(0);
+                    let next = if backwards {
+                        (current + tabs.len() - 1) % tabs.len()
+                    } else {
+                        (current + 1) % tabs.len()
+                    };
+                    // Reuse the existing ActivateTab path (including lazy
+                    // wakeup of sleeping or session-restored Servo tabs).
+                    if let Some(state) = app.try_state::<EngineState>() {
+                        let _ = state.commands.send(Command::ActivateTab(tabs[next].id.clone()));
+                    }
+                }
+            }
+            #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+            Ok(Command::ServoActivateIndex(index)) => {
+                if let Some(tab) = tabs.get(index) {
+                    if let Some(state) = app.try_state::<EngineState>() {
+                        let _ = state.commands.send(Command::ActivateTab(tab.id.clone()));
+                    }
+                }
+            }
             Ok(Command::Back) => {
                 #[cfg(all(feature = "servo-embed", target_os = "windows"))]
                 {
@@ -1235,6 +1263,11 @@ fn browser_surface_layout(app: AppHandle, top: f64, visible: bool) -> Result<(),
             position: tauri::PhysicalPosition::new(0, 0).into(),
             size: tauri::PhysicalSize::new(full.width.max(1), chrome_height).into(),
         }).map_err(|error| error.to_string())?;
+        // If a native page is hidden for Home/Settings/History, restore
+        // keyboard focus to trusted chrome rather than the invisible HWND.
+        if !show_page {
+            let _ = chrome.set_focus();
+        }
         app.state::<servo_embed::ServoBridge>()
             .send(servo_embed::Control::Layout {
                 top, width: full.width, height: full.height.saturating_sub(top),

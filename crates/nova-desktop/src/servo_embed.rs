@@ -106,6 +106,15 @@ fn dispatch_event(msg: &Value, browser: &mpsc::Sender<Command>) -> Result<bool, 
             let _ = browser.send(Command::ServoError(tab, message));
         }
         "focus_address" => { let _ = browser.send(Command::ServoFocusAddress); }
+        "cycle_tab" => {
+            let backwards = msg.get("backwards").and_then(Value::as_bool).unwrap_or(false);
+            let _ = browser.send(Command::ServoCycleTab(backwards));
+        }
+        "activate_tab_index" => {
+            if let Some(index) = msg.get("index").and_then(Value::as_u64).filter(|n| *n < 8) {
+                let _ = browser.send(Command::ServoActivateIndex(index as usize));
+            }
+        }
         "new_tab" => { let _ = browser.send(Command::NewTab); }
         "reopen_tab" => { let _ = browser.send(Command::ReopenTab); }
         "close_tab" if tab.len() <= 128 => { let _ = browser.send(Command::CloseTab(tab)); }

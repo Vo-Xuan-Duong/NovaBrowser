@@ -402,6 +402,28 @@ impl ApplicationHandler<Event> for Embedder {
                         PhysicalKey::Code(code) => Some(code),
                         _ => None,
                     };
+                    if control && key_code == Some(KeyCode::Tab) {
+                        emit(json!({"event":"cycle_tab",
+                            "backwards":state.modifiers.shift_key()}));
+                        return;
+                    }
+                    if control && !state.modifiers.shift_key() && !alt {
+                        let index = match key_code {
+                            Some(KeyCode::Digit1) => Some(0),
+                            Some(KeyCode::Digit2) => Some(1),
+                            Some(KeyCode::Digit3) => Some(2),
+                            Some(KeyCode::Digit4) => Some(3),
+                            Some(KeyCode::Digit5) => Some(4),
+                            Some(KeyCode::Digit6) => Some(5),
+                            Some(KeyCode::Digit7) => Some(6),
+                            Some(KeyCode::Digit8) => Some(7),
+                            _ => None,
+                        };
+                        if let Some(index) = index {
+                            emit(json!({"event":"activate_tab_index","index":index}));
+                            return;
+                        }
+                    }
                     if control && key_code == Some(KeyCode::KeyL) {
                         emit(json!({"event":"focus_address"}));
                         return;
