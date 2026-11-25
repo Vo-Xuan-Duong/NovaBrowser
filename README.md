@@ -56,7 +56,16 @@ run-nova-servo.cmd
 ```
 
 This first builds the isolated Servo helper, then runs NovaBrowser with
-`servo-embed` enabled. If preferred, run the two commands manually:
+`servo-embed` enabled.
+
+**Background tab memory control:** right-click an inactive website tab and
+choose **Sleep tab**. The tab keeps its URL/title and session entry, while
+the native Servo WebView is dropped. Selecting the tab again reloads the
+website (unsaved forms, scroll position and the old WebView's navigation
+history are not retained). Ctrl+Tab / Ctrl+Shift+Tab / Ctrl+1…8 also work
+when keyboard focus is inside a native Servo website.
+
+If preferred, run the two commands manually:
 
 ```cmd
 cargo build --manifest-path engines/servo-native/Cargo.toml --release

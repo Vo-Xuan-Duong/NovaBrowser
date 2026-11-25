@@ -74,6 +74,39 @@ Windows C++ toolchain and SDK. Any errors after the resolver stage may be
 distinct API, native library or GPU integration issues; **none have been
 validated by compiling this version on Windows in this session**.
 
+## Native sleeping tabs (manual RAM control)
+
+When running NovaBrowser with `run-nova-servo.cmd`:
+
+1. Open at least two website tabs.
+2. **Right-click an inactive website tab → Sleep tab**. The tab remains in the
+   tab strip with its URL/title and a moon icon, but its Servo WebView handle
+   is dropped, allowing Servo to close the document and free associated
+   resources.
+3. **Click the sleeping tab**, or choose **Wake tab** in its context menu.
+   NovaBrowser creates a new WebView and reloads the saved URL on demand.
+4. The active tab cannot be slept. The ordinary Obscura build does not expose
+   this renderer-specific operation.
+
+**Important:** sleeping is a *discard*, not a freeze. Unsaved form state,
+in-page JavaScript state, scroll position, media playback and the discarded
+WebView's own Back/Forward entries are not retained. Use this only for
+background tabs whose page may be safely reloaded. Session metadata and
+bookmarks remain untouched. This can reduce memory pressure, but measured
+RAM savings depend on Servo's internal memory reclamation and Windows
+process behavior.
+
+The native Servo child also forwards **Ctrl+Tab**, **Ctrl+Shift+Tab** and
+**Ctrl+1…8** to NovaBrowser's browser-owned tab manager. Switching to a
+sleeping tab uses the same lazy restore path as opening a saved session.
+
+Local regression guard:
+
+```cmd
+node crates/nova-desktop/ui/tests/tab-sleep.cjs
+check-nova-servo.cmd
+```
+
 ## Acceptance checklist
 
 1. Compiler: Cargo resolves both workspaces independently without an ICU
