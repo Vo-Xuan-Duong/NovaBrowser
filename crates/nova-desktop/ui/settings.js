@@ -23,6 +23,9 @@
     const clearBookmarks = document.getElementById("settings-clear-bookmarks");
     const historyMessage = document.getElementById("settings-history-message");
     const sectionLabel = document.getElementById("settings-section-label");
+    const engineValue = document.getElementById("settings-engine-value");
+    const engineDescription = document.getElementById("settings-engine-description");
+    const engineStatus = document.getElementById("settings-engine-status");
     const searchInput = document.getElementById("settings-search");
     const searchSummary = document.getElementById("settings-search-summary");
     const content = document.getElementById("settings-content");
@@ -154,9 +157,20 @@
         selectSection(name, { clearSearch: true });
         return;
       }
-      const fresh = await invoke("browser_get_settings");
+      const [fresh, engine] = await Promise.all([
+        invoke("browser_get_settings"),
+        invoke("browser_get_engine_info").catch(() => null),
+      ]);
       persisted = { ...fresh };
       fill(persisted);
+      const isServo = engine?.mode === "servo";
+      engineValue.textContent = isServo ? "Servo 0.8 (experimental)"
+        : engine?.mode === "obscura" ? "Obscura / V8" : "Unknown";
+      engineDescription.textContent = isServo
+        ? "Servo runs websites in a separate rendering process."
+        : "Experimental Rust rendering and JavaScript engine";
+      engineStatus.textContent = engine?.running ? "Active" : "Stopped";
+      i18n.apply(engineValue.closest('[data-settings-panel="about"]'));
       searchInput.value = "";
       filterNavigation();
       page.hidden = false;
