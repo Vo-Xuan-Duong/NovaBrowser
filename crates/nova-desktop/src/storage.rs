@@ -259,6 +259,21 @@ impl BrowserDataStore {
         self.save(&data)
     }
 
+    /// Replace a provisional page title after the native engine reports the
+    /// real document title. Never create a new visit or change its timestamp.
+    pub fn update_visit_title(&self, url: &str, title: &str) -> Result<(), String> {
+        let title = title.trim();
+        if title.is_empty() || title.len() > 4096 { return Ok(()); }
+        let mut data = self.lock();
+        if let Some(visit) = data.visits.iter_mut().rev().find(|visit| visit.url == url) {
+            if visit.title != title {
+                visit.title = title.to_owned();
+                return self.save(&data);
+            }
+        }
+        Ok(())
+    }
+
     pub fn record_visit(&self, title: String, url: String) -> Result<(), String> {
         let mut data = self.lock();
         let visited_at = SystemTime::now()

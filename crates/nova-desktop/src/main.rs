@@ -83,6 +83,10 @@ struct BrowserTab {
     servo_home_back: Option<(String, String)>,
     #[cfg(all(feature = "servo-embed", target_os = "windows"))]
     servo_home_forward: bool,
+    // Track visits independently of tab.address: the address is already
+    // set during navigation, before Servo reports the completed URL.
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    servo_last_recorded_url: Option<String>,
 }
 
 impl BrowserTab {
@@ -109,6 +113,8 @@ impl BrowserTab {
             servo_home_back: None,
             #[cfg(all(feature = "servo-embed", target_os = "windows"))]
             servo_home_forward: false,
+            #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+            servo_last_recorded_url: None,
         }
     }
 
@@ -329,6 +335,7 @@ fn navigate(
         }
         tab.servo_home_back = None;
         tab.servo_home_forward = false;
+        tab.servo_last_recorded_url = None;
         tab.address = target.to_owned();
         tab.title = "Loading...".to_string();
         tab.restore_url = None;
@@ -474,7 +481,9 @@ fn engine_thread(
     // Font configuration must happen before the renderer initializes its
     // process-wide font database. Loading a curated set avoids scanning all
     // installed Windows fonts (which can be very large).
-    font_fallback::configure_desktop_fonts();
+    if !cfg!(all(feature = "servo-embed", target_os = "windows")) {
+        font_fallback::configure_desktop_fonts();
+    }
 
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -836,6 +845,12 @@ fn engine_thread(
                     if tab.address != url {
                         tab.history.record(url.clone());
                         tab.address = url.clone();
+                    }
+                    // A typed URL was already put in tab.address before
+                    // Servo loaded it; don't use address inequality as the
+                    // signal for recording visits.
+                    if tab.servo_last_recorded_url.as_deref() != Some(url.as_str()) {
+                        tab.servo_last_recorded_url = Some(url.clone());
                         if browser_data.settings().save_history {
                             let _ = browser_data.record_visit(tab.title.clone(), url.clone());
                         }
@@ -851,7 +866,22 @@ fn engine_thread(
             #[cfg(all(feature = "servo-embed", target_os = "windows"))]
             Ok(Command::ServoTitle(tab_id, title)) => {
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
-                    tab.title = if title.is_empty() { "Untitled page".into() } else { title };
+                    let title = if title.trim().is_empty() {
+                        "Untitled page".to_string()
+                    } else { title };
+                    if tab.address == "nova://home" {
+                        // A previously loaded site can finish title updates
+                        // while its WebView is hidden behind Nova Home.
+                        if let Some((_, previous_title)) = tab.servo_home_back.as_mut() {
+                            *previous_title = title;
+                        }
+                        continue;
+                    }
+                    if tab.title == title { continue; }
+                    tab.title = title;
+                    if browser_data.settings().save_history {
+                        let _ = browser_data.update_visit_title(&tab.address, &tab.title);
+                    }
                     if tab_id == active_id { publish_tab_title(&app, &tab.title); }
                     publish_tab_list(&app, &tabs, &active_id);
                     persist_session(&browser_data, &tabs, &active_id);
@@ -867,7 +897,9 @@ fn engine_thread(
             }
             #[cfg(all(feature = "servo-embed", target_os = "windows"))]
             Ok(Command::ServoError(tab_id, error)) => {
-                if tab_id == active_id {
+                if tab_id == active_id && tabs.iter().any(|tab|
+                    tab.id == tab_id && tab.address != "nova://home")
+                {
                     report(&app, None, format!("Navigation error: Servo: {error}"), false);
                 }
             }
@@ -1155,7 +1187,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let engine_app = app.handle().clone();
             std::thread::Builder::new()
                 .name("nova-engine".into())
-                .stack_size(256 * 1024 * 1024)
+                // The old V8 renderer may require deep stacks. In native
+                // Servo mode this thread only handles browser metadata/IPC.
+                .stack_size(if cfg!(all(feature = "servo-embed", target_os = "windows")) {
+                    8 * 1024 * 1024
+                } else {
+                    256 * 1024 * 1024
+                })
                 .spawn(move || engine_thread(engine_app, browser_data, receiver))?;
             Ok(())
         })
