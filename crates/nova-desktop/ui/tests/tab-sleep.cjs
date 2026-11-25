@@ -33,6 +33,11 @@ assert.match(main, /sleeping: tab\.restore_url\.is_some\(\)/,
 assert.match(ui, /addEventListener\("contextmenu"/);
 assert.match(ui, /browser_sleep_tab/);
 assert.match(ui, /browser_activate_tab/);
+assert.match(ui, /addAction\("New tab", "plus", \(\) => \{\s*closeSettings\(\);/,
+  "Context-menu new-tab action must leave the Settings page");
+assert.match(ui, /if \(tab\.active\) closeSettings\(\);/,
+  "Closing the active tab from its menu must leave Settings");
+
 assert.match(ui, /tab\.sleeping \? "moon"/);
 assert.match(ui, /event\.key === "ContextMenu"/);
 assert.match(ui, /event\.key === "Escape"/);
