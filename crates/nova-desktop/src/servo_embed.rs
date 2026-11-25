@@ -49,6 +49,10 @@ pub struct ServoBridge {
     process: Arc<Process>,
 }
 impl ServoBridge {
+    pub fn is_running(&self) -> bool {
+        self.process.alive.load(Ordering::Acquire)
+    }
+
     pub fn send(&self, command: Control) -> Result<(), String> {
         if !self.process.alive.load(Ordering::Acquire) {
             return Err("Servo rendering process is not running".into());

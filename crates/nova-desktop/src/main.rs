@@ -1128,6 +1128,32 @@ fn browser_save_settings(
     Ok(settings)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EngineInfo {
+    mode: &'static str,
+    running: bool,
+    isolated: bool,
+}
+
+#[tauri::command]
+fn browser_get_engine_info(app: AppHandle) -> EngineInfo {
+    #[cfg(all(feature = "servo-embed", target_os = "windows"))]
+    {
+        return EngineInfo {
+            mode: "servo",
+            running: app.try_state::<servo_embed::ServoBridge>()
+                .map(|bridge| bridge.is_running()).unwrap_or(false),
+            isolated: true,
+        };
+    }
+    #[cfg(not(all(feature = "servo-embed", target_os = "windows")))]
+    {
+        let _ = app;
+        EngineInfo { mode: "obscura", running: true, isolated: false }
+    }
+}
+
 #[tauri::command]
 fn browser_get_engine_mode() -> &'static str {
     if cfg!(all(feature = "servo-embed", target_os = "windows")) {
@@ -1223,6 +1249,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             browser_get_settings,
             browser_save_settings,
             browser_get_engine_mode,
+            browser_get_engine_info,
             browser_surface_layout
         ])
         .on_window_event(|window, event| {
