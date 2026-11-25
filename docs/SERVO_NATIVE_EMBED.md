@@ -28,6 +28,7 @@ solve this native-library conflict. Keep the engine in its own workspace.
 | `engines/servo-native/Cargo.toml` | Independent Servo 0.8 / SpiderMonkey Cargo workspace |
 | `engines/servo-native/src/main.rs` | Native Windows child HWND, GPU rendering, WebViews and input |
 | `run-nova-servo.cmd` | Builds renderer first, then runs NovaBrowser with the feature |
+| `check-nova-servo.cmd` | Runs local source/IPC tests and both Rust workspace checks |
 | `engines/servo-native/tests/isolation.cjs` | Static lockfile separation and IPC regression test |
 
 The helper accepts tagged JSON commands via its inherited **stdin**:
@@ -46,9 +47,7 @@ is technically another operating-system process.
 ```cmd
 git pull origin main
 rustup update stable
-node engines/servo-native/tests/isolation.cjs
-cargo check -p nova-desktop --features servo-embed
-cargo check --manifest-path engines/servo-native/Cargo.toml
+check-nova-servo.cmd
 run-nova-servo.cmd
 ```
 
@@ -93,11 +92,27 @@ validated by compiling this version on Windows in this session**.
 8. RAM: sample the **entire process tree**, including the helper, under the
    same browsing workloads as the default rendering engine.
 
+Recent browser integration changes:
+- Native Servo mode no longer constructs unused Obscura/V8 `Page`
+  isolates or `BrowserContext` objects for every tab. It also avoids the
+  legacy font setup and reserves a smaller control-thread stack.
+- Browser history now records successful native page locations even when
+  the target URL matches the address bar, then updates the real document
+  title without creating duplicate visits.
+- Leaving a website for `nova://home` retains its live Servo WebView.
+  Back restores the page without reloading; hidden page redirects and
+  title changes cannot replace the trusted internal Home route.
+- The browser detects native renderer pipe closure and reports a stopped
+  process. Settings > About displays the selected engine and its current
+  process state. Native shortcuts use physical keys.
+- The native renderer limits privileged top-level navigation to
+  `about:blank`; other non-HTTP(S) targets are rejected.
+
 Current limitations: cross-process Win32 parent-child composition has not
-been verified; focus/IME, GPU rendering and site compatibility remain
-unproven. The initial feature-gated build still initializes legacy
-Obscura tab structures, so it is **not yet optimized for low RAM**.
-No production-readiness or measured memory savings are claimed.
+been verified; IME, GPU rendering and site compatibility remain unproven.
+The feature-gated build still compiles some legacy Obscura dependencies,
+so it is **not yet a Servo-only executable**. No production-readiness or
+measured memory savings are claimed.
 
 Never run GitHub Actions; compile and test locally.
 

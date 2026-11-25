@@ -63,13 +63,16 @@ cargo build --manifest-path engines/servo-native/Cargo.toml --release
 cargo run -p nova-desktop --release --features servo-embed
 ```
 
-**Diagnostics and local checks:**
+**Local code checks** (Cargo + browser UI tests, no GitHub Actions):
 
 ```cmd
-node engines/servo-native/tests/isolation.cjs
-cargo check -p nova-desktop --features servo-embed
-cargo check --manifest-path engines/servo-native/Cargo.toml
+check-nova-servo.cmd
 ```
+
+Then validate actual page rendering, window resize and input using
+`run-nova-servo.cmd`. The check script covers separate Cargo graphs,
+JavaScript/UI contracts and Servo renderer protocol unit tests; it does
+not establish that native GPU composition works on your Windows machine.
 
 The initial Servo build may require a modern Rust toolchain, C++ build tools,
 Windows SDK and additional Servo system libraries. For custom target paths,
@@ -79,8 +82,9 @@ set `NOVA_SERVO_SIDECAR_BIN` to the built helper executable.
 test passes, but **neither Rust workspace nor the cross-process native child
 window has been compiled/validated here on Windows**. Servo GPU compositing,
 IME, multi-tab interactions, security and RAM still need testing. The
-feature-gated NovaBrowser build currently retains some legacy Obscura
-initialization; it is not yet memory optimized. Do not use the prototype for
+feature-gated build now skips constructing Obscura/V8 page isolates per tab
+and reserves a smaller control-thread stack. Some legacy dependencies are
+still compiled; no measured RAM advantage is claimed. Do not use the prototype for
 sensitive accounts.
 
 See [Windows-native integration checklist](docs/SERVO_NATIVE_EMBED.md)
